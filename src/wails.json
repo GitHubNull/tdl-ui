@@ -1,0 +1,18 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "tdl-ui",
+  "outputfilename": "tdl-ui",
+  "frontend:install": "pnpm install",
+  "frontend:build": "pnpm build",
+  "frontend:dev:watcher": "pnpm dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "tdl-ui contributors"
+  },
+  "info": {
+    "productName": "tdl UI",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright (c) 2026 tdl-ui contributors",
+    "comments": "Telegram 下载工具 tdl 的桌面 GUI（AGPL-3.0）"
+  }
+}

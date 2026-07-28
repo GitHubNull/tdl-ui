@@ -1,0 +1,119 @@
+// Package script 的文件存储部分：脚本以 .go 文件形式存放在数据目录 scripts/ 下。
+package script
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	"tdl-ui/internal/scriptapi"
+)
+
+// Meta 脚本元信息（列表展示用）。
+type Meta struct {
+	Name      string `json:"name"`      // 不含扩展名的脚本名
+	Size      int64  `json:"size"`      // 文件大小（字节）
+	UpdatedAt string `json:"updatedAt"` // 最后修改时间（YYYY-MM-DD HH:MM:SS）
+}
+
+// Store 管理脚本目录下的 .go 文件。
+type Store struct {
+	dir string
+}
+
+// NewStore 创建脚本存储，dir 必须已存在。
+func NewStore(dir string) *Store {
+	return &Store{dir: dir}
+}
+
+// 脚本名仅允许字母、数字、下划线、中划线与中文，防止路径穿越。
+var nameRe = regexp.MustCompile(`^[\w\p{Han}-]+$`)
+
+func (s *Store) path(name string) (string, error) {
+	if !nameRe.MatchString(name) {
+		return "", fmt.Errorf("非法脚本名: %q（仅允许字母、数字、下划线、中划线与中文）", name)
+	}
+	return filepath.Join(s.dir, name+".go"), nil
+}
+
+// List 列出所有脚本，按名称排序。
+func (s *Store) List() ([]Meta, error) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil, err
+	}
+
+	metas := make([]Meta, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		metas = append(metas, Meta{
+			Name:      strings.TrimSuffix(e.Name(), ".go"),
+			Size:      info.Size(),
+			UpdatedAt: info.ModTime().Format("2006-01-02 15:04:05"),
+		})
+	}
+	sort.Slice(metas, func(i, j int) bool { return metas[i].Name < metas[j].Name })
+	return metas, nil
+}
+
+// Read 读取脚本源码。
+func (s *Store) Read(name string) (string, error) {
+	p, err := s.path(name)
+	if err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// Write 保存脚本源码。
+func (s *Store) Write(name, src string) error {
+	p, err := s.path(name)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte(src), 0o644)
+}
+
+// Delete 删除脚本。
+func (s *Store) Delete(name string) error {
+	p, err := s.path(name)
+	if err != nil {
+		return err
+	}
+	return os.Remove(p)
+}
+
+// LoadByName 读取并解释指定脚本。
+func (s *Store) LoadByName(name string) (*Contracts, error) {
+	src, err := s.Read(name)
+	if err != nil {
+		return nil, err
+	}
+	return Load(src)
+}
+
+// SampleFileInfo 试运行用的示例文件信息。
+func SampleFileInfo() scriptapi.FileInfo {
+	return scriptapi.FileInfo{
+		DialogID:    1234567890,
+		MessageID:   42,
+		MessageDate: time.Now().Unix(),
+		FileName:    "example_video.mp4",
+		FileCaption: "示例消息文本",
+		FileSize:    1024 * 1024 * 128,
+	}
+}

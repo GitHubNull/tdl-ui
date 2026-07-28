@@ -1,0 +1,27 @@
+# 临时文件目录（项目规范：所有临时文件放置于 tmp/）
+tmp/
+
+# Go 构建产物
+src/build/bin/
+*.exe
+*.syso
+
+# 前端依赖与构建产物
+node_modules/
+src/frontend/dist/
+src/frontend/wailsjs/
+
+# pnpm
+.pnpm-store/
+
+# IDE / 编辑器
+.idea/
+.vscode/
+*.swp
+
+# 日志
+*.log
+
+# 操作系统
+Thumbs.db
+.DS_Store
