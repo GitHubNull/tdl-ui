@@ -2,10 +2,8 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -16,7 +14,6 @@ import (
 	"github.com/iyear/tdl/core/downloader"
 	"github.com/iyear/tdl/core/storage"
 	coretclient "github.com/iyear/tdl/core/tclient"
-	"github.com/iyear/tdl/pkg/key"
 	"github.com/iyear/tdl/pkg/kv"
 	pkgtclient "github.com/iyear/tdl/pkg/tclient"
 	"github.com/iyear/tdl/pkg/tmessage"
@@ -26,6 +23,7 @@ import (
 	"tdl-ui/internal/logging"
 	"tdl-ui/internal/script"
 	"tdl-ui/internal/scriptapi"
+	"tdl-ui/internal/store"
 )
 
 var logEngine = logging.L("engine")
@@ -58,6 +56,21 @@ type TaskOptions struct {
 	SkipSame   bool        `json:"skipSame"`
 	Group      bool        `json:"group"`
 	Restart    bool        `json:"restart"`
+}
+
+// TaskFile 任务内单个文件记录（下载中为 .tmp 临时路径，完成后为最终路径）。
+type TaskFile struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+	// State: downloading / done / failed
+	State string `json:"state"`
+}
+
+// AppendOptions 向已有任务追加消息项的参数（URLs 与 Selections 至少一项非空）。
+type AppendOptions struct {
+	URLs       []string    `json:"urls"`
+	Selections []Selection `json:"selections"`
 }
 
 // TaskView 任务视图（前端展示 / task:update 事件负载）。
@@ -103,78 +116,167 @@ type Deps struct {
 	KV      kv.Storage
 	Emitter *events.Emitter
 	Scripts *script.Store
+	Store   *store.Store // 任务/消息项/文件/断点的 SQLite 持久化（单测可为 nil）
 }
 
 // Manager 任务管理器：维护任务列表并驱动执行。
 type Manager struct {
-	deps      Deps
-	statePath string // 任务记录持久化文件（tasks.json）
+	deps Deps
 
 	mu    sync.Mutex
 	tasks map[string]*Task
 	order []string // 创建顺序
 }
 
-// NewManager 创建任务管理器，并从磁盘恢复历史任务记录。
+// NewManager 创建任务管理器，并从 SQLite 恢复历史任务记录。
 func NewManager(deps Deps) *Manager {
 	m := &Manager{
 		deps:  deps,
 		tasks: make(map[string]*Task),
 	}
-	if deps.Cfg != nil { // 单测可能不提供配置，此时不启用持久化
-		m.statePath = filepath.Join(deps.Cfg.DataDir(), "tasks.json")
-	}
-	m.restore()
+	m.loadFromStore()
 	return m
 }
 
-// restore 加载持久化记录；上次退出时仍在运行/排队的任务恢复为已暂停（可断点续传）。
-func (m *Manager) restore() {
-	if m.statePath == "" {
+// loadFromStore 从 SQLite 恢复任务；上次退出时仍在运行/排队的任务恢复为已暂停（可断点续传）。
+func (m *Manager) loadFromStore() {
+	if m.deps.Store == nil { // 单测可能不提供 store
 		return
 	}
-	recs, err := loadRecords(m.statePath)
+	tasks, err := m.deps.Store.LoadAllTasks()
 	if err != nil {
 		logEngine.Errorf("加载任务记录失败: %v", err)
 		return
 	}
-	for _, r := range recs {
-		status := r.Status
+	for _, st := range tasks {
+		status := st.Status
 		if status == StatusRunning || status == StatusQueued {
 			status = StatusPaused
+			_ = m.deps.Store.UpdateTaskStatus(st.ID, status, st.Error)
+		}
+		items, err := m.deps.Store.ListItems(st.ID)
+		if err != nil {
+			logEngine.Errorf("加载任务 %s 消息项失败: %v", st.ID, err)
+			continue
+		}
+		urls, selections := itemsToOptions(items)
+		files, err := m.deps.Store.ListFiles(st.ID)
+		if err != nil {
+			logEngine.Errorf("加载任务 %s 文件失败: %v", st.ID, err)
 		}
 		t := &Task{
-			ID:        r.ID,
-			CreatedAt: r.CreatedAt,
-			opts:      r.Opts,
-			mgr:       m,
-			status:    status,
-			errMsg:    r.Error,
-			total:     r.Total,
-			finished:  r.Finished,
-			failed:    r.Failed,
-			files:     r.Files,
+			ID:        st.ID,
+			CreatedAt: st.CreatedAt,
+			opts: TaskOptions{
+				URLs:       urls,
+				Selections: selections,
+				Label:      st.Label,
+				Dir:        st.Dir,
+				ScriptName: st.ScriptName,
+				Template:   st.Template,
+				RewriteExt: st.RewriteExt,
+				SkipSame:   st.SkipSame,
+				Group:      st.GroupMedia,
+			},
+			mgr:      m,
+			status:   status,
+			errMsg:   st.Error,
+			total:    st.Total,
+			finished: st.Finished,
+			failed:   st.Failed,
+			files:    storeFilesToTaskFiles(files),
 		}
 		m.tasks[t.ID] = t
 		m.order = append(m.order, t.ID)
 	}
 }
 
-// persist 把全部任务快照写盘（m.mu → t.mu 的锁序，调用方不得持有任一锁）。
-func (m *Manager) persist() {
-	if m.statePath == "" {
-		return
-	}
-	m.mu.Lock()
-	recs := make([]taskRecord, 0, len(m.order))
-	for _, id := range m.order {
-		recs = append(recs, m.tasks[id].record())
-	}
-	m.mu.Unlock()
+// ---- store 组装辅助 ----
 
-	if err := saveRecords(m.statePath, recs); err != nil {
-		logEngine.Errorf("保存任务记录失败: %v", err)
+// itemsToOptions 把消息项行还原为 URLs / Selections。
+func itemsToOptions(items []store.Item) ([]string, []Selection) {
+	var urls []string
+	var sels []Selection
+	for _, it := range items {
+		switch it.ItemType {
+		case store.ItemTypeURL:
+			if it.URL != "" {
+				urls = append(urls, it.URL)
+			}
+		case store.ItemTypeSelection:
+			sels = append(sels, Selection{
+				DialogID:   it.DialogID,
+				DialogType: it.DialogType,
+				MessageIDs: it.MessageIDs,
+			})
+		}
 	}
+	return urls, sels
+}
+
+// optionsToItems 把任务选项拆成消息项行（用于插入）。
+func optionsToItems(opts TaskOptions) []store.Item {
+	items := make([]store.Item, 0, len(opts.URLs)+len(opts.Selections))
+	for _, u := range opts.URLs {
+		items = append(items, store.Item{ItemType: store.ItemTypeURL, URL: u})
+	}
+	for _, sel := range opts.Selections {
+		items = append(items, store.Item{
+			ItemType:   store.ItemTypeSelection,
+			DialogID:   sel.DialogID,
+			DialogType: sel.DialogType,
+			MessageIDs: sel.MessageIDs,
+		})
+	}
+	return items
+}
+
+// toStoreTask 把任务主字段转为 store.Task 行。
+func toStoreTask(t *Task) store.Task {
+	return store.Task{
+		ID:         t.ID,
+		Label:      t.opts.Label,
+		Dir:        t.opts.Dir,
+		ScriptName: t.opts.ScriptName,
+		Template:   t.opts.Template,
+		RewriteExt: t.opts.RewriteExt,
+		SkipSame:   t.opts.SkipSame,
+		GroupMedia: t.opts.Group,
+		Status:     t.status,
+		Error:      t.errMsg,
+		Total:      t.total,
+		Finished:   t.finished,
+		Failed:     t.failed,
+		CreatedAt:  t.CreatedAt,
+	}
+}
+
+// storeFilesToTaskFiles 把文件表行转为内存文件记录。
+func storeFilesToTaskFiles(files []store.File) []TaskFile {
+	out := make([]TaskFile, 0, len(files))
+	for _, f := range files {
+		out = append(out, TaskFile{Name: f.Name, Path: f.Path, Size: f.Size, State: f.State})
+	}
+	return out
+}
+
+// unionIntSlice 求两个 int 切片并集，保序去重（内存 opts 合并用）。
+func unionIntSlice(a, b []int) []int {
+	seen := make(map[int]struct{}, len(a)+len(b))
+	out := make([]int, 0, len(a)+len(b))
+	for _, v := range a {
+		if _, ok := seen[v]; !ok {
+			seen[v] = struct{}{}
+			out = append(out, v)
+		}
+	}
+	for _, v := range b {
+		if _, ok := seen[v]; !ok {
+			seen[v] = struct{}{}
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // Create 创建并启动下载任务，返回任务 ID。
@@ -221,6 +323,12 @@ func (m *Manager) Create(opts TaskOptions) (string, error) {
 		status:    StatusQueued,
 	}
 
+	if m.deps.Store != nil {
+		if err := m.deps.Store.InsertTask(toStoreTask(t), optionsToItems(opts)); err != nil {
+			return "", errors.Wrap(err, "保存任务失败")
+		}
+	}
+
 	m.mu.Lock()
 	m.tasks[t.ID] = t
 	m.order = append(m.order, t.ID)
@@ -231,6 +339,110 @@ func (m *Manager) Create(opts TaskOptions) (string, error) {
 	go m.run(t)
 
 	return t.ID, nil
+}
+
+// AppendItems 向已有任务追加消息项（重启式）：
+// 先写入/合并 task_items（URL 靠部分唱一索引去重，selection 按对话合并）；
+// running 走 Pause 路径，等本轮 run 退出后自动 Resume（execute 重组装后续项）；
+// done 追加后置回 paused（待用户恢复）；queued / 终态仅写 DB（下次运行时重组装）。
+func (m *Manager) AppendItems(taskID string, opts AppendOptions) error {
+	if len(opts.URLs) == 0 && len(opts.Selections) == 0 {
+		return errors.New("至少需要一条消息链接或一个选集")
+	}
+	if len(opts.URLs) > 0 {
+		urls, err := NormalizeURLs(opts.URLs)
+		if err != nil {
+			return err
+		}
+		opts.URLs = urls
+	}
+	if err := validateSelections(opts.Selections); err != nil {
+		return err
+	}
+
+	t, err := m.get(taskID)
+	if err != nil {
+		return err
+	}
+
+	// 写入 store（URL 去重、selection 合并）
+	if m.deps.Store != nil {
+		for _, u := range opts.URLs {
+			if _, err := m.deps.Store.AppendURLItem(taskID, u); err != nil {
+				return err
+			}
+		}
+		for _, sel := range opts.Selections {
+			if err := m.deps.Store.MergeSelectionItem(taskID, sel.DialogID, sel.DialogType, sel.MessageIDs); err != nil {
+				return err
+			}
+		}
+	}
+
+	// 同步内存 opts，保证视图/非运行窗口立即可见
+	t.mergeOpts(opts)
+
+	t.mu.Lock()
+	status := t.status
+	ch := t.runDone
+	t.mu.Unlock()
+
+	switch status {
+	case StatusRunning:
+		// 重启式：暂停当前 run，等它退出后自动恢复（重新从 task_items 组装）
+		_ = m.Pause(taskID)
+		go func() {
+			if ch != nil {
+				select {
+				case <-ch:
+				case <-time.After(reconnectTimeout):
+				}
+			}
+			if err := m.Resume(taskID); err != nil {
+				logEngine.Errorf("追加后恢复任务失败: id=%s err=%v", taskID, err)
+			}
+		}()
+	case StatusDone:
+		// 完成态：追加后置回 paused，暴露恢复入口（断点不重下，仅下新项）
+		t.mu.Lock()
+		t.status = StatusPaused
+		t.opts.Restart = false
+		t.mu.Unlock()
+		t.emitUpdate()
+	default:
+		// queued / paused / failed / canceled：仅写 DB，下次运行时重组装
+		t.emitUpdate()
+	}
+	return nil
+}
+
+// mergeOpts 把追加项合并进内存 opts（URL 去重、selection 按对话合并消息 ID）。
+func (t *Task) mergeOpts(opts AppendOptions) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	seen := make(map[string]struct{}, len(t.opts.URLs))
+	for _, u := range t.opts.URLs {
+		seen[u] = struct{}{}
+	}
+	for _, u := range opts.URLs {
+		if _, ok := seen[u]; !ok {
+			t.opts.URLs = append(t.opts.URLs, u)
+			seen[u] = struct{}{}
+		}
+	}
+	for _, ns := range opts.Selections {
+		merged := false
+		for i := range t.opts.Selections {
+			if t.opts.Selections[i].DialogID == ns.DialogID {
+				t.opts.Selections[i].MessageIDs = unionIntSlice(t.opts.Selections[i].MessageIDs, ns.MessageIDs)
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			t.opts.Selections = append(t.opts.Selections, ns)
+		}
+	}
 }
 
 // List 按创建时间倒序返回任务视图。
@@ -340,7 +552,11 @@ func (m *Manager) Remove(id string) error {
 		}
 	}
 	m.mu.Unlock()
-	m.persist()
+	if m.deps.Store != nil {
+		if err := m.deps.Store.DeleteTask(id); err != nil {
+			logEngine.Errorf("删除任务记录失败: id=%s err=%v", id, err)
+		}
+	}
 	return nil
 }
 
@@ -369,6 +585,7 @@ func (m *Manager) TaskDir(id string) (string, error) {
 // ClearFinished 移除全部已完成状态的任务记录（不动磁盘文件）。
 func (m *Manager) ClearFinished() {
 	m.mu.Lock()
+	var removed []string
 	kept := m.order[:0]
 	for _, id := range m.order {
 		t := m.tasks[id]
@@ -377,13 +594,20 @@ func (m *Manager) ClearFinished() {
 		t.mu.Unlock()
 		if done {
 			delete(m.tasks, id)
+			removed = append(removed, id)
 		} else {
 			kept = append(kept, id)
 		}
 	}
 	m.order = kept
 	m.mu.Unlock()
-	m.persist()
+	if m.deps.Store != nil {
+		for _, id := range removed {
+			if err := m.deps.Store.DeleteTask(id); err != nil {
+				logEngine.Errorf("清理任务记录失败: id=%s err=%v", id, err)
+			}
+		}
+	}
 }
 
 // DeleteFiles 删除任务内指定文件（paths 必须严格匹配记录内登记的路径，
@@ -415,6 +639,7 @@ func (m *Manager) DeleteFiles(id string, paths []string) error {
 		toDelete[p] = struct{}{}
 	}
 	var firstErr error
+	var deleted []string
 	kept := t.files[:0]
 	for _, f := range t.files {
 		if _, ok := toDelete[f.Path]; !ok {
@@ -428,6 +653,7 @@ func (m *Manager) DeleteFiles(id string, paths []string) error {
 			kept = append(kept, f) // 删除失败的文件保留记录
 			continue
 		}
+		deleted = append(deleted, f.Path)
 	}
 	t.files = kept
 	empty := len(t.files) == 0
@@ -444,7 +670,13 @@ func (m *Manager) DeleteFiles(id string, paths []string) error {
 		}
 		m.mu.Unlock()
 	}
-	m.persist()
+	if m.deps.Store != nil {
+		if empty {
+			_ = m.deps.Store.DeleteTask(id)
+		} else if len(deleted) > 0 {
+			_ = m.deps.Store.DeleteFilesByPath(id, deleted)
+		}
+	}
 	return firstErr
 }
 
@@ -496,7 +728,11 @@ func (m *Manager) DeleteAllFiles() error {
 		}
 	}
 
-	m.persist()
+	if m.deps.Store != nil {
+		for _, t := range snapshot {
+			_ = m.deps.Store.DeleteTask(t.ID)
+		}
+	}
 	return firstErr
 }
 
@@ -575,6 +811,22 @@ func (m *Manager) run(t *Task) {
 func (m *Manager) execute(ctx context.Context, t *Task) (rerr error) {
 	settings := m.deps.Cfg.Get()
 
+	// 每轮从 task_items 表重组装 URLs/Selections（覆盖 queued 窗口期的追加）。
+	urls, selections := t.opts.URLs, t.opts.Selections
+	if m.deps.Store != nil {
+		items, err := m.deps.Store.ListItems(t.ID)
+		if err != nil {
+			return errors.Wrap(err, "读取任务消息项失败")
+		}
+		if len(items) > 0 {
+			urls, selections = itemsToOptions(items)
+			t.mu.Lock()
+			t.opts.URLs = urls
+			t.opts.Selections = selections
+			t.mu.Unlock()
+		}
+	}
+
 	kvd, err := m.deps.KV.Open(Namespace)
 	if err != nil {
 		return errors.Wrap(err, "open kv")
@@ -596,8 +848,8 @@ func (m *Manager) execute(ctx context.Context, t *Task) (rerr error) {
 		defer func() { _ = pool.Close() }()
 
 		var dialogs []*tmessage.Dialog
-		if len(t.opts.URLs) > 0 {
-			d, err := tmessage.Parse(tmessage.FromURL(ctx, pool, kvd, t.opts.URLs))
+		if len(urls) > 0 {
+			d, err := tmessage.Parse(tmessage.FromURL(ctx, pool, kvd, urls))
 			if err != nil {
 				return errors.Wrap(err, "解析消息链接失败")
 			}
@@ -607,8 +859,8 @@ func (m *Manager) execute(ctx context.Context, t *Task) (rerr error) {
 		manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(pool.Default(ctx))
 
 		// 选集下载：按对话 + 消息 ID 直接解析，与链接结果合并
-		if len(t.opts.Selections) > 0 {
-			d, err := selectionsToDialogs(ctx, manager, t.opts.Selections)
+		if len(selections) > 0 {
+			d, err := selectionsToDialogs(ctx, manager, selections)
 			if err != nil {
 				return err
 			}
@@ -635,11 +887,17 @@ func (m *Manager) execute(ctx context.Context, t *Task) (rerr error) {
 		t.total = it.Total()
 		t.mu.Unlock()
 
-		// 断点续传：加载已完成集合；Restart 则清空进度
+		// 断点续传：从 resume_points 加载已完成集合（内容坐标）；Restart 则清空进度
 		if t.opts.Restart {
-			_ = kvd.Delete(ctx, key.Resume(it.Fingerprint()))
-		} else if err = loadResume(ctx, kvd, it); err != nil {
-			return err
+			if m.deps.Store != nil {
+				_ = m.deps.Store.DeleteResume(t.ID)
+			}
+		} else if m.deps.Store != nil {
+			finished, err := m.deps.Store.LoadFinished(t.ID)
+			if err != nil {
+				return errors.Wrap(err, "加载断点失败")
+			}
+			it.SetFinished(finished)
 		}
 
 		t.mu.Lock()
@@ -648,13 +906,15 @@ func (m *Manager) execute(ctx context.Context, t *Task) (rerr error) {
 		t.emitUpdate()
 
 		defer func() { // 保存或清理断点
+			if m.deps.Store == nil {
+				return
+			}
 			if rerr != nil {
-				saveErr := saveResume(ctx, kvd, it)
-				if saveErr != nil {
+				if saveErr := m.deps.Store.SaveFinished(t.ID, it.Finished()); saveErr != nil {
 					rerr = errors.Wrapf(rerr, "save resume: %v", saveErr)
 				}
 			} else {
-				_ = kvd.Delete(ctx, key.Resume(it.Fingerprint()))
+				_ = m.deps.Store.DeleteResume(t.ID)
 			}
 		}()
 
@@ -667,34 +927,14 @@ func (m *Manager) execute(ctx context.Context, t *Task) (rerr error) {
 	})
 }
 
-// loadResume 读取断点数据（对应 ref/tdl/app/dl/dl.go 的 resume，GUI 下无需询问，直接续传）。
-func loadResume(ctx context.Context, kvd storage.Storage, it *iter) error {
-	b, err := kvd.Get(ctx, key.Resume(it.Fingerprint()))
-	if err != nil && !errors.Is(err, storage.ErrNotFound) {
-		return err
+// saveResume 实时持久化断点集合（由 progress.OnDone 每完成一个文件调用）。
+func (t *Task) saveResume(finished map[string]struct{}) {
+	if t.mgr.deps.Store == nil {
+		return
 	}
-	if len(b) == 0 {
-		return nil
+	if err := t.mgr.deps.Store.SaveFinished(t.ID, finished); err != nil {
+		logEngine.Errorf("保存断点失败: id=%s err=%v", t.ID, err)
 	}
-
-	finished := make(map[int]struct{})
-	if err = json.Unmarshal(b, &finished); err != nil {
-		return err
-	}
-	if len(finished) == 0 {
-		return nil
-	}
-
-	it.SetFinished(finished)
-	return nil
-}
-
-func saveResume(ctx context.Context, kvd storage.Storage, it *iter) error {
-	b, err := json.Marshal(it.Finished())
-	if err != nil {
-		return err
-	}
-	return kvd.Set(ctx, key.Resume(it.Fingerprint()), b)
 }
 
 // ---- Task 内部方法 ----
@@ -718,23 +958,6 @@ func (t *Task) view() TaskView {
 	}
 }
 
-// record 任务的持久化快照。
-func (t *Task) record() taskRecord {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return taskRecord{
-		ID:        t.ID,
-		CreatedAt: t.CreatedAt,
-		Opts:      t.opts,
-		Status:    t.status,
-		Error:     t.errMsg,
-		Total:     t.total,
-		Finished:  t.finished,
-		Failed:    t.failed,
-		Files:     append([]TaskFile(nil), t.files...),
-	}
-}
-
 func (t *Task) info() scriptapi.TaskInfo {
 	v := t.view()
 	return scriptapi.TaskInfo{
@@ -748,15 +971,32 @@ func (t *Task) info() scriptapi.TaskInfo {
 }
 
 func (t *Task) emitUpdate() {
-	t.mgr.persist()
+	t.persistState()
 	t.mgr.deps.Emitter.Emit(events.Task, t.view())
+}
+
+// persistState 行级写回任务状态与计数（替代旧的全量 persist）。
+func (t *Task) persistState() {
+	if t.mgr.deps.Store == nil {
+		return
+	}
+	t.mu.Lock()
+	status, errMsg := t.status, t.errMsg
+	total, finished, failed := t.total, t.finished, t.failed
+	t.mu.Unlock()
+	if err := t.mgr.deps.Store.UpdateTaskStatus(t.ID, status, errMsg); err != nil {
+		logEngine.Errorf("更新任务状态失败: id=%s err=%v", t.ID, err)
+	}
+	if err := t.mgr.deps.Store.UpdateTaskCounts(t.ID, total, finished, failed); err != nil {
+		logEngine.Errorf("更新任务计数失败: id=%s err=%v", t.ID, err)
+	}
 }
 
 func (t *Task) emitFile(ev FileEvent) {
 	t.mgr.deps.Emitter.Emit(events.TaskFile, ev)
 }
 
-// ---- 文件记录维护（由 progress 回调） ----
+// ---- 文件记录维护（由 progress 回调，行级写 store） ----
 
 // addFile 登记文件（同路径覆盖，断点重跑时天然去重）。
 func (t *Task) addFile(f TaskFile) {
@@ -773,7 +1013,13 @@ func (t *Task) addFile(f TaskFile) {
 		t.files = append(t.files, f)
 	}
 	t.mu.Unlock()
-	t.mgr.persist()
+	if t.mgr.deps.Store != nil {
+		if err := t.mgr.deps.Store.UpsertFile(store.File{
+			TaskID: t.ID, Name: f.Name, Path: f.Path, Size: f.Size, State: f.State,
+		}); err != nil {
+			logEngine.Errorf("写入文件记录失败: id=%s err=%v", t.ID, err)
+		}
+	}
 }
 
 // finishFile 把 oldPath（.tmp）条目替换为最终文件记录；
@@ -800,7 +1046,13 @@ func (t *Task) finishFile(oldPath string, f TaskFile) {
 		t.files = append(t.files, f)
 	}
 	t.mu.Unlock()
-	t.mgr.persist()
+	if t.mgr.deps.Store != nil {
+		if err := t.mgr.deps.Store.FinishFile(t.ID, oldPath, store.File{
+			TaskID: t.ID, Name: f.Name, Path: f.Path, Size: f.Size, State: f.State,
+		}); err != nil {
+			logEngine.Errorf("完成文件记录失败: id=%s err=%v", t.ID, err)
+		}
+	}
 }
 
 // markFileFailed 标记文件失败。
@@ -813,7 +1065,11 @@ func (t *Task) markFileFailed(path string) {
 		}
 	}
 	t.mu.Unlock()
-	t.mgr.persist()
+	if t.mgr.deps.Store != nil {
+		if err := t.mgr.deps.Store.MarkFileFailed(t.ID, path); err != nil {
+			logEngine.Errorf("标记文件失败出错: id=%s err=%v", t.ID, err)
+		}
+	}
 }
 
 // dropFile 移除文件条目（临时文件已被清理）。
@@ -827,7 +1083,11 @@ func (t *Task) dropFile(path string) {
 	}
 	t.files = kept
 	t.mu.Unlock()
-	t.mgr.persist()
+	if t.mgr.deps.Store != nil {
+		if err := t.mgr.deps.Store.DropFile(t.ID, path); err != nil {
+			logEngine.Errorf("移除文件记录失败: id=%s err=%v", t.ID, err)
+		}
+	}
 }
 
 // onFileDone 由 progress 回调：更新计数并触发脚本钩子。

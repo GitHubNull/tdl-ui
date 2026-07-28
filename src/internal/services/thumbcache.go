@@ -13,23 +13,19 @@ const (
 	cacheKindPreview = "previews" // 预览大图
 )
 
-// thumbCache 缩略图磁盘缓存：软件运行目录下 cache/thumbs、cache/previews。
+// thumbCache 缩略图磁盘缓存：缓存根由 rootFn 每次求值，配置变更即时生效。
 // 文件名 <dialogID>_<messageID>.jpg 全局唯一，天然防重复防覆盖。
 type thumbCache struct {
-	root string
+	rootFn func() string
 
 	mu       sync.Mutex
 	inflight map[string]chan struct{} // 进程内 singleflight，防并发重复拉取
 }
 
-// newThumbCache 缓存根定位到可执行文件所在目录。
-func newThumbCache() *thumbCache {
-	dir := "."
-	if exe, err := os.Executable(); err == nil {
-		dir = filepath.Dir(exe)
-	}
+// newThumbCache 缓存根由 rootFn 注入（通常为 config.Manager.CacheDir）。
+func newThumbCache(rootFn func() string) *thumbCache {
 	return &thumbCache{
-		root:     filepath.Join(dir, "cache"),
+		rootFn:   rootFn,
 		inflight: make(map[string]chan struct{}),
 	}
 }
@@ -37,7 +33,7 @@ func newThumbCache() *thumbCache {
 // path 缓存文件路径：<root>/<kind>/<dialogID>_<messageID>.jpg。
 func (c *thumbCache) path(kind string, dialogID int64, messageID int) string {
 	name := strconv.FormatInt(dialogID, 10) + "_" + strconv.Itoa(messageID) + ".jpg"
-	return filepath.Join(c.root, kind, name)
+	return filepath.Join(c.rootFn(), kind, name)
 }
 
 // Get 命中磁盘缓存直接读；未命中经 fetch 拉取并原子落盘。

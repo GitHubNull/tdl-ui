@@ -99,7 +99,8 @@ func (p *progress) OnDone(elem downloader.Elem, err error) {
 		return
 	}
 
-	p.it.Finish(e.logicalPos)
+	p.it.Finish(e.resumeKey)
+	p.task.saveResume(p.it.Finished()) // 实时持久化断点（内容坐标）
 
 	newpath, perr := p.donePost(e)
 	if perr != nil {

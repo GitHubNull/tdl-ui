@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0] - 2026-07-29 02:01:16
+
+### Added
+- SQLite 持久化层（`internal/store`）：`tasks`/`task_items`/`files`/`resume_points` 四表，支持 WAL 模式、手写 PRAGMA user_version 迁移、旧 `tasks.json` 单事务导入并生成 `.bak`。
+- 任务追加下载：已完成/暂停/失败/取消态任务可追加新消息链接（URLs）或选集（Selections），采用「重启式」实现（running 走 Pause→runDone→Resume，done 置 paused）。
+- YAML 配置迁移：`settings.json` → `config.yaml`，旧文件重命名为 `.bak`；`Settings` 保留 JSON 标签，YAML 用内部 `yamlConfig` 互转。
+- 可配置缓存目录：`Settings` 新增 `cacheDir`，空值默认 `<DataDir>/cache`；保存时校验目录可写；`thumbCache` 改为 `rootFn` 注入实现热生效。
+- 设置页新增「存储」区块：数据目录展示、缓存目录输入+浏览、清空缓存按钮（二次确认）。
+- 断点续传改造：从 BBolt KV 的「逻辑位置」改为 SQLite `resume_points` 表的「内容坐标 `dialogID:messageID`」；分组消息逐成员生效。
+
+### Changed
+- 引擎层 `Manager` 从 JSON 全量 `persist()` 改为 SQLite 行级写（`UpdateTaskStatus`/`UpdateTaskCounts`/`UpsertFile`/`FinishFile` 等）。
+- `execute()` 每轮从 `task_items` 表重组装 URLs/Selections，覆盖 queued 窗口期追加。
+- 删除 `engine/persist.go` / `persist_test.go`，断点逻辑迁入 `resume_repo.go`。
+
 ## [0.5.1] - 2026-07-29 00:56:53
 
 ### Fixed

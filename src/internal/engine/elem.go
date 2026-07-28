@@ -18,8 +18,8 @@ import (
 
 // iterElem 实现 core/downloader 的 Elem 接口（对应 ref/tdl/app/dl/elem.go）。
 type iterElem struct {
-	id         int // 进度跟踪 ID
-	logicalPos int // 逻辑位置，用于断点续传
+	id        int    // 进度跟踪 ID
+	resumeKey string // 断点坐标 "dialogID:messageID"，用于断点续传
 
 	from    peers.Peer
 	fromMsg *tg.Message

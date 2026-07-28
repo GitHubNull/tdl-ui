@@ -120,7 +120,7 @@ type ChatService struct {
 
 // NewChatService 创建对话服务。
 func NewChatService(cfg *config.Manager, kvs kv.Storage) *ChatService {
-	return &ChatService{cfg: cfg, kv: kvs, thumbs: newThumbCache()}
+	return &ChatService{cfg: cfg, kv: kvs, thumbs: newThumbCache(func() string { return cfg.CacheDir() })}
 }
 
 // Stop 关闭常驻连接（登出后会话失效时调用），下次查询自动重建。

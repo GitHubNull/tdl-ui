@@ -71,9 +71,25 @@
         />
       </div>
 
+      <h2 class="section-title">存储</h2>
       <div class="form-field">
         <label>数据目录</label>
         <span class="hint mono">{{ store.dataDir || '—' }}</span>
+      </div>
+      <div class="form-field">
+        <label for="cache-dir">缓存目录</label>
+        <div class="form-row">
+          <InputText id="cache-dir" v-model="store.settings.cacheDir" class="grow" placeholder="留空使用 <数据目录>\cache" />
+          <Button icon="pi pi-folder-open" severity="secondary" outlined v-tooltip.top="'浏览…'" @click="browseCacheDir" />
+        </div>
+        <span class="hint">缩略图与预览缓存的存放位置，保存后立即生效</span>
+      </div>
+      <div class="form-field">
+        <label>缓存管理</label>
+        <div class="form-row">
+          <Button label="清空缓存" icon="pi pi-trash" severity="secondary" outlined @click="onClearCache" />
+        </div>
+        <span class="hint">删除缓存目录下的缩略图与预览文件，不影响已下载的内容</span>
       </div>
 
       <h2 class="section-title">日志</h2>
@@ -138,6 +154,7 @@
         <Button label="保存设置" icon="pi pi-save" :loading="saving" @click="save" />
       </div>
     </div>
+    <ConfirmDialog />
   </div>
 </template>
 
@@ -145,12 +162,14 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
+import { useConfirm } from 'primevue/useconfirm'
 import Button from 'primevue/button'
+import ConfirmDialog from 'primevue/confirmdialog'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import SelectButton from 'primevue/selectbutton'
 
-import { Download, LogApi } from '../api'
+import { Download, LogApi, SettingsApi } from '../api'
 import type { ThemeMode } from '../theme'
 import { useAuthStore } from '../stores/auth'
 import { useSettingsStore } from '../stores/settings'
@@ -159,6 +178,7 @@ const store = useSettingsStore()
 const auth = useAuthStore()
 const router = useRouter()
 const toast = useToast()
+const confirm = useConfirm()
 const saving = ref(false)
 
 const accountHint = computed(() =>
@@ -204,6 +224,33 @@ async function browseLogDir() {
   } catch (e: any) {
     toast.add({ severity: 'error', summary: '选择目录失败', detail: String(e), life: 4000 })
   }
+}
+
+async function browseCacheDir() {
+  try {
+    const picked = await Download.selectDirectory()
+    if (picked) store.settings.cacheDir = picked
+  } catch (e: any) {
+    toast.add({ severity: 'error', summary: '选择目录失败', detail: String(e), life: 4000 })
+  }
+}
+
+function onClearCache() {
+  confirm.require({
+    header: '清空缓存',
+    message: '将删除缓存目录下的缩略图与预览文件，不影响已下载的内容。确定继续？',
+    icon: 'pi pi-exclamation-triangle',
+    acceptProps: { label: '清空', severity: 'danger' },
+    rejectProps: { label: '取消', severity: 'secondary', outlined: true },
+    accept: async () => {
+      try {
+        await SettingsApi.clearCache()
+        toast.add({ severity: 'success', summary: '缓存已清空', life: 3000 })
+      } catch (e: any) {
+        toast.add({ severity: 'error', summary: '清空缓存失败', detail: String(e), life: 5000 })
+      }
+    },
+  })
 }
 
 async function importLogYaml() {

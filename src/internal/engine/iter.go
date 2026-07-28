@@ -3,8 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -64,9 +62,7 @@ type iter struct {
 	opts    IterOptions
 
 	mu           *sync.Mutex
-	finished     map[int]struct{}
-	fingerprint  string
-	logicalPos   int
+	finished     map[string]struct{}
 	dialogIndex  int
 	messageIndex int
 
@@ -97,11 +93,10 @@ func newIter(pool dcpool.Pool, manager *peers.Manager, dialogs []*tmessage.Dialo
 		tpl:     tpl,
 		opts:    opts,
 
-		mu:          &sync.Mutex{},
-		finished:    make(map[int]struct{}),
-		fingerprint: fingerprint(dialogs),
-		counter:     -1,
-		elem:        make(chan downloader.Elem, 10), // 分组消息缓冲
+		mu:       &sync.Mutex{},
+		finished: make(map[string]struct{}),
+		counter:  -1,
+		elem:     make(chan downloader.Elem, 10), // 分组消息缓冲
 	}, nil
 }
 
@@ -135,7 +130,6 @@ func (i *iter) process(ctx context.Context) (ret bool, skip bool) {
 	}
 
 	peer, msg := i.dialogs[i.dialogIndex].Peer, i.dialogs[i.dialogIndex].Messages[i.messageIndex]
-	startLogicalPos := i.logicalPos
 
 	defer func() {
 		if i.messageIndex++; i.dialogIndex < len(i.dialogs) && i.messageIndex >= len(i.dialogs[i.dialogIndex].Messages) {
@@ -152,7 +146,6 @@ func (i *iter) process(ctx context.Context) (ret bool, skip bool) {
 	message, err := tutil.GetSingleMessage(ctx, i.pool.Default(ctx), peer, msg)
 	if err != nil {
 		if errors.Is(err, tutil.ErrMessageDeleted) { // 已删除消息直接跳过
-			i.logicalPos++
 			return false, true
 		}
 		i.err = errors.Wrap(err, "resolve message")
@@ -160,20 +153,22 @@ func (i *iter) process(ctx context.Context) (ret bool, skip bool) {
 	}
 
 	if _, ok := message.GetGroupedID(); ok && i.opts.Group {
-		return i.processGrouped(ctx, message, from, startLogicalPos)
+		return i.processGrouped(ctx, message, from)
 	}
 
-	if _, ok := i.finished[startLogicalPos]; ok { // 断点续传：已完成
-		i.logicalPos++
+	if _, ok := i.finished[resumeKey(from.ID(), message.ID)]; ok { // 断点续传：已完成
 		return false, true
 	}
 
-	ret, skip = i.processSingle(ctx, message, from, startLogicalPos)
-	i.logicalPos++
-	return ret, skip
+	return i.processSingle(ctx, message, from)
 }
 
-func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peers.Peer, logicalPos int) (bool, bool) {
+// resumeKey 断点坐标：内容坐标 "dialogID:messageID"。
+func resumeKey(dialogID int64, messageID int) string {
+	return fmt.Sprintf("%d:%d", dialogID, messageID)
+}
+
+func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peers.Peer) (bool, bool) {
 	item, ok := tmedia.GetMedia(message)
 	if !ok { // 无媒体消息
 		return false, true
@@ -248,8 +243,8 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 
 	i.counter++
 	i.elem <- &iterElem{
-		id:         i.counter,
-		logicalPos: logicalPos,
+		id:        i.counter,
+		resumeKey: resumeKey(from.ID(), message.ID),
 
 		from:    from,
 		fromMsg: message,
@@ -262,7 +257,7 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 	return true, false
 }
 
-func (i *iter) processGrouped(ctx context.Context, message *tg.Message, from peers.Peer, startLogicalPos int) (bool, bool) {
+func (i *iter) processGrouped(ctx context.Context, message *tg.Message, from peers.Peer) (bool, bool) {
 	grouped, err := tutil.GetGroupedMessages(ctx, i.pool.Default(ctx), from.InputPeer(), message)
 	if err != nil {
 		i.err = errors.Wrapf(err, "resolve grouped message %d/%d", from.ID(), message.ID)
@@ -270,13 +265,12 @@ func (i *iter) processGrouped(ctx context.Context, message *tg.Message, from pee
 	}
 
 	hasValid := false
-	for idx, msg := range grouped {
-		logicalPos := startLogicalPos + idx
-		if _, ok := i.finished[logicalPos]; ok {
+	for _, msg := range grouped {
+		if _, ok := i.finished[resumeKey(from.ID(), msg.ID)]; ok {
 			continue
 		}
 
-		ret, skip := i.processSingle(ctx, msg, from, logicalPos)
+		ret, skip := i.processSingle(ctx, msg, from)
 		if !ret && !skip {
 			return false, false
 		}
@@ -285,7 +279,6 @@ func (i *iter) processGrouped(ctx context.Context, message *tg.Message, from pee
 		}
 	}
 
-	i.logicalPos += len(grouped)
 	return hasValid, !hasValid
 }
 
@@ -299,24 +292,22 @@ func (i *iter) Value() downloader.Elem { return <-i.elem }
 
 func (i *iter) Err() error { return i.err }
 
-func (i *iter) SetFinished(finished map[int]struct{}) {
+func (i *iter) SetFinished(finished map[string]struct{}) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	i.finished = finished
 }
 
-func (i *iter) Finished() map[int]struct{} {
+func (i *iter) Finished() map[string]struct{} {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	return i.finished
 }
 
-func (i *iter) Fingerprint() string { return i.fingerprint }
-
-func (i *iter) Finish(id int) {
+func (i *iter) Finish(key string) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	i.finished[id] = struct{}{}
+	i.finished[key] = struct{}{}
 }
 
 func (i *iter) Total() int {
@@ -339,18 +330,4 @@ func sortDialogs(dialogs []*tmessage.Dialog) {
 	for _, m := range dialogs {
 		sort.Ints(m.Messages)
 	}
-}
-
-func fingerprint(dialogs []*tmessage.Dialog) string {
-	endian := binary.BigEndian
-	buf, b := &bytes.Buffer{}, make([]byte, 8)
-	for _, m := range dialogs {
-		endian.PutUint64(b, uint64(tutil.GetInputPeerID(m.Peer)))
-		buf.Write(b)
-		for _, msg := range m.Messages {
-			endian.PutUint64(b, uint64(msg))
-			buf.Write(b)
-		}
-	}
-	return fmt.Sprintf("%x", sha256.Sum256(buf.Bytes()))
 }

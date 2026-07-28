@@ -2,10 +2,15 @@
   <Dialog
     :visible="visible"
     modal
-    header="添加下载"
+    :header="appendMode ? '追加下载' : '添加下载'"
     :style="{ width: '560px' }"
     @update:visible="(v: boolean) => emit('update:visible', v)"
   >
+    <div v-if="appendMode" class="selection-summary">
+      <i class="pi pi-plus-circle" />
+      <span>向已有任务追加新的消息链接，目录/脚本/选项沿用原任务，重复项与已完成项将自动跳过</span>
+    </div>
+
     <div v-if="selection" class="selection-summary">
       <i class="pi pi-images" />
       <span>将从「<b>{{ selection.title }}</b>」下载 <b>{{ selection.messageIds.length }}</b> 个文件</span>
@@ -23,7 +28,7 @@
       <span class="hint">支持公开频道与私有频道（t.me/c/...）消息链接</span>
     </div>
 
-    <div class="form-field">
+    <div v-if="!appendMode" class="form-field">
       <label for="nt-dir">保存目录</label>
       <div class="form-row">
         <InputText id="nt-dir" v-model="dir" class="grow" :placeholder="settings.settings.downloadDir || '默认下载目录'" />
@@ -31,7 +36,7 @@
       </div>
     </div>
 
-    <div class="form-field">
+    <div v-if="!appendMode" class="form-field">
       <label for="nt-script">过滤 / 命名脚本（可选）</label>
       <Select
         id="nt-script"
@@ -46,7 +51,7 @@
       <span class="hint">脚本可实现按条件跳过文件、自定义文件名与任务钩子，到「脚本」页编写</span>
     </div>
 
-    <div class="options-row">
+    <div v-if="!appendMode" class="options-row">
       <div class="opt">
         <Checkbox v-model="group" input-id="nt-opt-group" binary />
         <label for="nt-opt-group">下载整组相册</label>
@@ -64,8 +69,8 @@
     <template #footer>
       <Button label="取消" severity="secondary" text @click="close" />
       <Button
-        label="创建下载任务"
-        icon="pi pi-download"
+        :label="appendMode ? '追加下载' : '创建下载任务'"
+        :icon="appendMode ? 'pi pi-plus' : 'pi pi-download'"
         :disabled="selection ? !selection.messageIds.length : !urlList.length"
         :loading="creating"
         @click="create"
@@ -93,6 +98,10 @@ const props = defineProps<{
   visible: boolean
   /** 选集模式：指定后隐藏链接输入，直接按对话+消息 ID 下载 */
   selection?: { dialogId: number; dialogType: string; title: string; messageIds: number[] } | null
+  /** 追加模式：向已有任务追加新消息项，隐藏目录/脚本/选项 */
+  appendMode?: boolean
+  /** 追加模式目标任务 ID */
+  taskId?: string
 }>()
 const emit = defineEmits<{
   'update:visible': [boolean]
@@ -142,23 +151,30 @@ async function create() {
     const selections: Selection[] = sel
       ? [{ dialogId: sel.dialogId, dialogType: sel.dialogType, messageIds: sel.messageIds }]
       : []
-    await Download.createTask({
-      urls: sel ? [] : urlList.value,
-      selections,
-      label: sel ? `${sel.title} × ${sel.messageIds.length} 个文件` : '',
-      dir: dir.value,
-      scriptName: scriptName.value ?? '',
-      template: '',
-      rewriteExt: rewriteExt.value,
-      skipSame: skipSame.value,
-      group: group.value,
-      restart: false,
-    })
+    if (props.appendMode && props.taskId) {
+      await Download.appendTaskItems(props.taskId, {
+        urls: sel ? [] : urlList.value,
+        selections,
+      })
+    } else {
+      await Download.createTask({
+        urls: sel ? [] : urlList.value,
+        selections,
+        label: sel ? `${sel.title} × ${sel.messageIds.length} 个文件` : '',
+        dir: dir.value,
+        scriptName: scriptName.value ?? '',
+        template: '',
+        rewriteExt: rewriteExt.value,
+        skipSame: skipSame.value,
+        group: group.value,
+        restart: false,
+      })
+    }
     urls.value = ''
     emit('created')
     close()
   } catch (e: any) {
-    toast.add({ severity: 'error', summary: '创建失败', detail: String(e), life: 6000 })
+    toast.add({ severity: 'error', summary: props.appendMode ? '追加失败' : '创建失败', detail: String(e), life: 6000 })
   } finally {
     creating.value = false
   }

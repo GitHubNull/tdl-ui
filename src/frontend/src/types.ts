@@ -20,6 +20,7 @@ export interface Settings {
   limit: number
   poolSize: number
   theme: 'light' | 'dark' | 'system'
+  cacheDir: string
   loggedInUserId: number
   loggedInUsername: string
   log: LogSettings
@@ -86,6 +87,12 @@ export interface TaskOptions {
   skipSame: boolean
   group: boolean
   restart: boolean
+}
+
+/** engine.AppendOptions（向已有任务追加消息项） */
+export interface AppendOptions {
+  urls: string[]
+  selections?: Selection[]
 }
 
 /** engine.TaskView（task:update 事件负载） */

@@ -11,6 +11,7 @@ const defaults = (): Settings => ({
   limit: 2,
   poolSize: 8,
   theme: 'system',
+  cacheDir: '',
   loggedInUserId: 0,
   loggedInUsername: '',
   log: {

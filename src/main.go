@@ -24,6 +24,7 @@ import (
 	"tdl-ui/internal/script"
 	"tdl-ui/internal/scriptapi"
 	"tdl-ui/internal/services"
+	"tdl-ui/internal/store"
 )
 
 //go:embed all:frontend/dist
@@ -63,6 +64,19 @@ func main() {
 	}
 	logApp.Infof("bolt 存储就绪: %s", cfg.KVDir())
 
+	// 任务持久化：SQLite（tasks.db），首次运行时从旧 tasks.json 一次性导入
+	taskStore, err := store.Open(filepath.Join(cfg.DataDir(), "tasks.db"))
+	if err != nil {
+		logApp.Errorf("初始化任务存储失败: %v", err)
+		_ = kvs.Close()
+		logging.Close()
+		log.Fatalf("初始化任务存储失败: %v", err)
+	}
+	if err := taskStore.ImportLegacyJSON(filepath.Join(cfg.DataDir(), "tasks.json")); err != nil {
+		logApp.Warnf("导入旧任务记录失败: %v", err)
+	}
+	logApp.Infof("任务存储就绪: %s", filepath.Join(cfg.DataDir(), "tasks.db"))
+
 	// 脚本日志转发到前端，同时写入日志系统
 	scriptLogger := logging.L("script")
 	scriptapi.SetLogSink(func(msg string) {
@@ -76,6 +90,7 @@ func main() {
 		KV:      kvs,
 		Emitter: emitter,
 		Scripts: scriptStore,
+		Store:   taskStore,
 	})
 
 	authSvc := services.NewAuthService(cfg, kvs, emitter)
@@ -104,6 +119,7 @@ func main() {
 		},
 		OnShutdown: func(ctx context.Context) {
 			logApp.Infof("应用退出，关闭存储与日志")
+			_ = taskStore.Close()
 			_ = kvs.Close()
 			logging.Close()
 		},

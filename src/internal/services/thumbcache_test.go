@@ -13,8 +13,9 @@ import (
 
 func newTestThumbCache(t *testing.T) *thumbCache {
 	t.Helper()
+	dir := filepath.Join(t.TempDir(), "cache")
 	return &thumbCache{
-		root:     filepath.Join(t.TempDir(), "cache"),
+		rootFn:   func() string { return dir },
 		inflight: make(map[string]chan struct{}),
 	}
 }

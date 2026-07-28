@@ -1,6 +1,9 @@
 package services
 
 import (
+	"os"
+	"path/filepath"
+
 	"tdl-ui/internal/config"
 	"tdl-ui/internal/logging"
 )
@@ -33,3 +36,20 @@ func (s *SettingsService) Save(settings config.Settings) error {
 
 // DataDir 返回应用数据目录（用于界面展示）。
 func (s *SettingsService) DataDir() string { return s.cfg.DataDir() }
+
+// ClearCache 清空缓存目录下的 thumbs/、previews/ 两个子目录后重建（不递归删根目录）。
+func (s *SettingsService) ClearCache() error {
+	root := s.cfg.CacheDir()
+	for _, kind := range []string{cacheKindThumb, cacheKindPreview} {
+		sub := filepath.Join(root, kind)
+		if err := os.RemoveAll(sub); err != nil {
+			logSettings.Errorf("清空缓存子目录失败 %s: %v", sub, err)
+			return err
+		}
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			return err
+		}
+	}
+	logSettings.Infof("缓存已清空: %s", root)
+	return nil
+}

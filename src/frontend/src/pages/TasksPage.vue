@@ -75,6 +75,15 @@
         />
         <Button
           v-if="isFinal(t.status)"
+          icon="pi pi-plus-circle"
+          severity="secondary"
+          text
+          rounded
+          v-tooltip.top="'追加下载'"
+          @click="onAppend(t.id)"
+        />
+        <Button
+          v-if="isFinal(t.status)"
           icon="pi pi-trash"
           severity="secondary"
           text
@@ -153,6 +162,12 @@
     </div>
 
     <NewTaskDialog v-model:visible="showDialog" @created="onCreated" />
+    <NewTaskDialog
+      v-model:visible="showAppendDialog"
+      append-mode
+      :task-id="appendTaskId"
+      @created="onAppended"
+    />
     <ConfirmDialog />
   </div>
 </template>
@@ -177,6 +192,8 @@ const tasks = useTasksStore()
 const toast = useToast()
 const confirm = useConfirm()
 const showDialog = ref(false)
+const showAppendDialog = ref(false)
+const appendTaskId = ref('')
 
 // 任务文件列表的展开与多选状态
 const expanded = reactive<Record<string, boolean>>({})
@@ -290,6 +307,16 @@ function fileStateSeverity(s: string) {
 async function onCreated() {
   await tasks.refresh()
   toast.add({ severity: 'success', summary: '任务已创建', life: 3000 })
+}
+
+function onAppend(id: string) {
+  appendTaskId.value = id
+  showAppendDialog.value = true
+}
+
+async function onAppended() {
+  await tasks.refresh()
+  toast.add({ severity: 'success', summary: '已追加下载', life: 3000 })
 }
 
 const statusText: Record<string, string> = {
