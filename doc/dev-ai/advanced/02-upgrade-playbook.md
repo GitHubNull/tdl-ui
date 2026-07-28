@@ -39,10 +39,11 @@ go build ./...
 | 编译错误位置 | 处理方式 |
 | --- | --- |
 | `services/auth.go`（pkg/tclient、pkg/tpath、core/storage） | 读上游对应包新签名，最小改动适配调用处 |
+| `services/chat.go/thumb.go`（core/tmedia、core/util/tutil、core/storage） | 读上游对应包新签名，最小改动适配调用处 |
 | `engine/`（core/downloader、dcpool、tmessage、tplfunc） | 先 `cd ref/tdl && git diff <旧>..<新> -- app/dl/ core/` 看上游同类调用如何改，再对照移植 |
 | `main.go`（pkg/kv） | 对照上游 kv 驱动初始化新用法 |
 
-移植上游 `app/dl` 逻辑变更时逐文件对照 `src/internal/engine/{iter,progress,elem,task}.go`，只移植行为性差异（bug 修复、fingerprint 算法、flood-wait 处理），不引入 CLI 特有代码（cobra/prog 进度条）。
+移植上游 `app/dl` 逻辑变更时逐文件对照 `src/internal/engine/{iter,progress,elem,task}.go`，只移植行为性差异（bug 修复、新特性、fingerprint 算法、flood-wait 处理），不引入 CLI 特有代码（cobra/prog 进度条）。
 
 **高危检查**（改完必须人工确认并在总结中报告）：
 

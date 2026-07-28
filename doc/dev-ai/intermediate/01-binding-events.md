@@ -4,16 +4,17 @@
 
 本文是修改前后端交互面时的**契约对照表**。改动任何一侧都必须按表同步另一侧。
 
-## 绑定面：四个服务
+## 绑定面：五个服务
 
 `src/main.go` 中 `Bind` 注册，前端经 `window.go.services.<服务名>.<方法>` 访问（统一封装在 `src/frontend/src/api.ts`）：
 
 | Go 服务（src/internal/services/） | api.ts 导出 | 职责 |
 | --- | --- | --- |
 | `AuthService`（auth.go） | `Auth` | 验证码/二维码/Desktop 导入登录、登出、状态查询 |
-| `DownloadService`（download.go） | `Download` | 链接解析、任务创建/暂停/恢复/取消、目录选择 |
+| `ChatService`（chat.go/thumb.go） | `Chat` | 对话列表、媒体分页查询、缩略图下载 |
+| `DownloadService`（download.go） | `Download` | 任务创建/暂停/恢复/取消/移除、目录选择 |
 | `ScriptService`（script.go） | `Script` | 脚本 CRUD、语法校验、试运行、起始模板 |
-| `SettingsService`（settings.go） | `SettingsApi` | 设置读写、主题 |
+| `SettingsService`（settings.go） | `SettingsApi` | 设置读写、数据目录 |
 
 ## 事件契约（后端 → 前端）
 
@@ -36,10 +37,15 @@ Go 结构体 ↔ `src/frontend/src/types.ts` 手工同步，对应关系：
 | --- | --- |
 | `config.Settings` | `Settings` |
 | `services.LoginStatus` | `LoginStatus` |
+| `services.Dialog` | `DialogView` |
+| `services.MediaItem` | `MediaItem` |
+| `services.MediaQuery` | `MediaQuery` |
 | `engine.TaskOptions` / `TaskView` | `TaskOptions` / `TaskView` |
 | `engine.FileEvent` | `FileEvent` |
+| `engine.Selection` | `Selection` |
 | `script.Meta` | `ScriptMeta` |
 | `services.ValidateResult` / `TestRunResult` | 同名 |
+| `services.DesktopAccount` | `DesktopAccount` |
 
 同步检查配方：
 

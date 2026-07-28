@@ -22,13 +22,13 @@
 | `src/main.go` | Wails 入口、服务绑定注册 | 新增服务时追加 Bind |
 | `src/internal/config/` | 设置持久化（JSON 文件） | 加设置项在此扩展 Settings 结构 |
 | `src/internal/events/` | 事件名常量 + Emitter | 新事件在此定义常量 |
-| `src/internal/services/` | Wails 绑定服务（Auth/Download/Script/Settings） | 前端可调用的方法都在这里 |
+| `src/internal/services/` | Wails 绑定服务（Auth/Chat/Download/Script/Settings） | 前端可调用的方法都在这里 |
 | `src/internal/engine/` | 下载任务引擎（改写自 `ref/tdl/app/dl`） | 对照上游升级，见升级剧本 |
 | `src/internal/script/` | Yaegi 引擎 + 脚本文件存储 | 契约函数/沙箱策略在此 |
 | `src/internal/scriptapi/` | 暴露给用户脚本的 `tdlui/api` 包 | 加脚本 API 在此 |
 | `src/frontend/src/api.ts` | 后端调用唯一入口 | 页面禁止直接用 `window.go` |
 | `src/frontend/src/types.ts` | 与 Go JSON 契约对应的 TS 类型 | 与后端结构体同步维护 |
-| `src/frontend/src/stores/` | Pinia stores（auth/tasks/scripts/settings） | 事件订阅统一放 store 的 `init()` |
+| `src/frontend/src/stores/` | Pinia stores（auth/chats/tasks/scripts/settings） | 事件订阅统一放 store 的 `init()` |
 | `src/frontend/src/pages/` | 五个页面组件 | UI 改动主要发生地 |
 | `doc/` | 三大文档系列 | 行为变更后同步相关篇目 |
 

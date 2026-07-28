@@ -5,7 +5,7 @@
 ## 项目概览
 
 tdl UI：基于 Wails v2 的 Telegram 媒体下载桌面客户端，复用 tdl（CLI）的下载引擎。
-功能范围（当前版本）：**账号登录 + 媒体下载 + Yaegi 脚本**。聊天浏览 / 上传 / 转发 / 导出暂不在范围内。
+功能范围（当前版本）：**账号登录 + 对话浏览 + 媒体下载 + Yaegi 脚本**。上传 / 转发 / 导出暂不在范围内。
 
 ## 目录结构与硬性约束
 
@@ -31,7 +31,7 @@ tdl UI：基于 Wails v2 的 Telegram 媒体下载桌面客户端，复用 tdl�
 | 层 | 技术 |
 | --- | --- |
 | 桌面壳 | Wails v2（Go ↔ WebView 绑定 + 事件） |
-| 后端 | Go 1.23+；`go.mod replace github.com/iyear/tdl => ../ref/tdl` |
+| 后端 | Go 1.25+；`go.mod replace github.com/iyear/tdl => ../ref/tdl` |
 | 下载引擎 | tdl `core/downloader` + `core/dcpool` + `pkg/tclient`（bolt 会话存储 `pkg/kv`） |
 | 脚本引擎 | Yaegi（Go 解释器），沙箱禁用 `os/exec` |
 | 前端 | Vue 3 + Vite + PrimeVue 4（Aura 主题）+ Pinia + vue-router，pnpm 管理 |
@@ -40,12 +40,12 @@ tdl UI：基于 Wails v2 的 Telegram 媒体下载桌面客户端，复用 tdl�
 
 - `config/` — 设置持久化（`%AppData%\tdl-ui\settings.json`）
 - `events/` — Wails 事件契约：`login:update`、`task:update`、`task:file`、`script:log`
-- `scriptapi/` — 脚本可见的 API 类型（FileInfo/TaskInfo/Log）
-- `script/` — Yaegi 引擎封装（契约函数提取、panic 恢复、超时保护）+ 脚本文件 CRUD
-- `engine/` — 下载任务管理器（状态机 queued/running/paused/done/failed/canceled、断点续传）
-- `services/` — Wails 绑定服务：AuthService / DownloadService / ScriptService / SettingsService
+- `scriptapi/` — 脚本可见的 API 类型（FileInfo/TaskInfo/Log/Logf）
+- `script/` — Yaegi 引擎封装（契约函数提取、panic 恢复、10 秒超时保护）+ 脚本文件 CRUD
+- `engine/` — 下载任务管理器（状态机 queued/running/paused/done/failed/canceled、断点续传、选集下载）
+- `services/` — Wails 绑定服务：AuthService / ChatService / DownloadService / ScriptService / SettingsService
 
-关键设计：bolt kv 全局唯一实例（bbolt 文件锁）；暂停 = 取消 + 保留 resume key，恢复 = 重跑 + 断点续传；登录交互 = channel + 事件。
+关键设计：bolt kv 全局唯一实例（bbolt 文件锁）；暂停 = 取消 + 保留 resume key，恢复 = 重跑 + 断点续传；登录交互 = channel + 事件；ChatService 常驻连接 = 懒启动 + 断线重建 + jobs 通道串行化。
 
 ## 前端约定
 
@@ -53,6 +53,7 @@ tdl UI：基于 Wails v2 的 Telegram 媒体下载桌面客户端，复用 tdl�
 - 后端调用统一走 `src/frontend/src/api.ts`（`window.go.services.*` 封装）；类型契约在 `types.ts`，修改 Go 结构体 JSON tag 后必须同步
 - 事件订阅在 Pinia store 的 `init()` 中完成（App.vue onMounted 统一调用）
 - UI 规范：简约美观大方；仅使用确认存在的 PrimeIcons；暗黑模式 localStorage 持久化 + 跟随系统；主按钮实心主色
+- 页面路由（hash 模式）：`/` → `/chats`（对话浏览）, `/login`（账号）, `/tasks`（下载任务）, `/scripts`（脚本）, `/settings`（设置）
 
 ## 常用命令
 

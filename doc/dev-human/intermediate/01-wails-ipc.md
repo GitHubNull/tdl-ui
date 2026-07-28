@@ -6,20 +6,21 @@ tdl UI 的前后端通过 Wails v2 的两条通道通信：**方法绑定**（�
 
 ## 1. 方法绑定（Bind）
 
-`src/main.go` 中注册四个服务：
+`src/main.go` 中注册五个服务：
 
 ```go
-Bind: []interface{}{ authSvc, downloadSvc, scriptSvc, settingsSvc },
+Bind: []interface{}{ authSvc, chatSvc, downloadSvc, scriptSvc, settingsSvc },
 ```
 
 Wails 将服务的**导出方法**暴露为 `window.go.services.<服务名>.<方法名>`，返回 Promise。前端统一通过 `src/frontend/src/api.ts` 封装调用，**页面组件不允许直接触碰 `window.go`**：
 
 ```ts
 // api.ts
-export const Download = {
-  createTask: (opts: TaskOptions): Promise<string> =>
-    svc('DownloadService').CreateTask(opts),
-  ...
+export const Chat = {
+  listDialogs: (): Promise<DialogView[]> => svc('ChatService').ListDialogs(),
+  listMedia: (q: MediaQuery): Promise<MediaPage> => svc('ChatService').ListMedia(q),
+  getThumbnail: (dialogId: number, dialogType: string, messageId: number): Promise<string> =>
+    svc('ChatService').GetThumbnail(dialogId, dialogType, messageId),
 }
 ```
 
@@ -33,10 +34,15 @@ Go 结构体经 JSON 序列化传给前端，`src/frontend/src/types.ts` 手工�
 | --- | --- |
 | `config.Settings` | `Settings` |
 | `services.LoginStatus` | `LoginStatus` |
+| `services.Dialog` | `DialogView` |
+| `services.MediaItem` | `MediaItem` |
+| `services.MediaQuery` | `MediaQuery` |
 | `engine.TaskOptions` / `TaskView` | `TaskOptions` / `TaskView` |
 | `engine.FileEvent` | `FileEvent` |
+| `engine.Selection` | `Selection` |
 | `script.Meta` | `ScriptMeta` |
 | `services.ValidateResult` / `TestRunResult` | 同名 |
+| `services.DesktopAccount` | `DesktopAccount` |
 
 ## 2. 事件系统（Events）
 
@@ -65,7 +71,17 @@ SubmitCode(code) ───────────► codeCh <- code，flow 继�
 
 二维码登录同理：`qr` 阶段推送 `qrUrl`，前端用 `qrcode` 库渲染 canvas；token 过期时后端会推送新 URL。
 
-## 4. 运行时上下文
+## 4. ChatService 的常驻连接
+
+`ChatService` 维护一个常驻 Telegram 连接（懒启动、断线自动重建），所有查询任务经 `jobs` 通道串行化执行：
+
+- `ListDialogs()`：拉取全部对话列表，缓存 access hash 到 bolt
+- `ListMedia(q)`：游标分页查询对话内媒体，支持服务端过滤（photo/video/document）
+- `GetThumbnail(...)`：按需下载清晰缩略图，内存缓存（LRU 上限 500 条）
+
+登出时调用 `chatSvc.Stop()` 关闭连接，下次查询自动重建。
+
+## 5. 运行时上下文
 
 `Emitter.Bind(ctx)` 在 `OnStartup` 中保存 Wails 运行时 ctx；需要调用运行时 API（如 `runtime.OpenDirectoryDialog`）的服务通过 `emitter.Ctx()` 获取。启动前调用 `Emit` 是安全的（静默丢弃）。
 

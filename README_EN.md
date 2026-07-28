@@ -9,17 +9,18 @@ tdl UI is a GUI transformation of the CLI tool tdl: it reuses tdl's battle-teste
 ## Features
 
 - **Account login**: code login, QR code login, one-click Telegram Desktop session import
-- **Media download**: paste message links for batch download, multi-threaded with resumable transfers (same engine as tdl CLI)
-- **Task management**: real-time progress, pause / resume / cancel
+- **Chat browser**: dual-panel chat list and media grid with search/filter/pagination and thumbnail preview
+- **Media download**: select media from chats or paste message links for batch download, multi-threaded with resumable transfers (same engine as tdl CLI)
+- **Task management**: real-time progress, pause / resume (resumable) / cancel
 - **Script engine** (Yaegi, Go syntax):
   - `Filter` / `Rename` — skip files by condition, customize file names
   - `OnTaskStart` / `OnFileDone` / `OnTaskDone` — task lifecycle hooks
 - **Proxy support**: SOCKS5 / HTTP
-- **Clean UI**: light / dark themes (follow system), single portable binary
+- **Clean UI**: light / dark / system themes with localStorage persistence, single portable binary
 
 ## Screenshots
 
-> (Placeholders: Login / Download / Tasks / Scripts / Settings)
+> (Placeholders: Login / Chats / Download / Scripts / Settings)
 
 ## Installation
 
@@ -27,7 +28,7 @@ Download `tdl-ui.exe` (Windows x64) from Releases and run it directly — no ins
 
 ### Build from source
 
-Requirements: Go 1.23+, Node.js 20+, pnpm, [Wails CLI v2](https://wails.io/docs/gettingstarted/installation).
+Requirements: Go 1.25+, Node.js 20+, pnpm, [Wails CLI v2](https://wails.io/docs/gettingstarted/installation).
 
 ```bash
 git clone --recurse-submodules <repo-url>
@@ -42,9 +43,10 @@ wails build -ldflags "-s -w" -trimpath
 ## Quick Start
 
 1. Open the app and log in to Telegram on the **Account** page (QR code recommended)
-2. Paste message links (one per line) on the **Download** page, pick a directory, and create a task
-3. Watch real-time progress on the **Tasks** page; pause / resume (resumable) / cancel anytime
-4. (Optional) Write Go scripts on the **Scripts** page for filtering, renaming and automation hooks
+2. On the **Chats** page, select a chat from the left panel and browse media on the right (filter by type/keyword/size)
+3. Check the files you want to download and click "Download selected"; or go to the **Download** page and paste message links
+4. Watch real-time progress on the **Download** page; pause / resume (resumable) / cancel anytime
+5. (Optional) Write Go scripts on the **Scripts** page for filtering, renaming and automation hooks
 
 ## Documentation
 
@@ -61,8 +63,9 @@ wails build -ldflags "-s -w" -trimpath
 ```
 ├── ref/tdl      # tdl upstream submodule (read-only, sync-only)
 ├── src/         # Wails app source (Go backend + Vue frontend)
-├── doc/         # documentation
-└── tmp/         # temporary files (not committed)
+├── doc/         # documentation (tutorials / dev-human / dev-ai)
+├── tmp/         # temporary files (not committed)
+└── agent.md     # AI coding agent quick-reference guide
 ```
 
 ## License & Disclaimer

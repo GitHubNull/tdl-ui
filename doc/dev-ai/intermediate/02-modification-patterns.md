@@ -11,7 +11,8 @@
 1. 定位目标页面（导航项与路由见 `router.ts` 的 `meta`）
 2. 保持三段式结构与既有设计规范：8px 间距栅格、圆角卡片、单一品牌蓝主色、亮/暗双主题均可读
 3. 颜色一律使用 PrimeVue 语义 token（`var(--p-primary-color)`、`var(--p-surface-*)`、`var(--p-text-color)` 等），**禁止硬编码 hex**，否则暗黑模式会破相
-4. 验证：`pnpm build` 通过 → `wails dev` + 浏览器工具截图核对亮/暗两种主题
+4. `ChatsPage.vue` 为双面板复杂布局（左对话列表 + 右媒体网格），改动时注意保持 `split-body` 结构
+5. 验证：`pnpm build` 通过 → `wails dev` + 浏览器工具截图核对亮/暗两种主题
 
 ## 配方 B：给服务加方法（前端可调用的新能力）
 
@@ -21,6 +22,7 @@
 
 - 长耗时操作放 goroutine + 事件推送结果，绑定方法立即返回，避免阻塞前端 Promise
 - 需要 Wails 运行时 API（如目录选择对话框）时通过 `emitter.Ctx()` 取 ctx
+- `ChatService` 的方法需通过 `invoke()` 投递到常驻客户端执行，避免并发问题
 
 ## 配方 C：加设置项
 
@@ -39,7 +41,7 @@
 
 详细步骤见 [dev-human：Yaegi 脚本引擎扩展](../../dev-human/advanced/01-yaegi-extend.md)。AI 代理额外注意：
 
-- 新契约函数必须经 `callWithGuard` 包裹（panic 恢复 + 超时）
+- 新契约函数必须经 `callWithGuard` 包裹（panic 恢复 + 10 秒超时）
 - 空脚本（无任何契约函数）`Load` 报错是**设计行为**，不要"修复"它
 - `engine_test.go` 必须新增覆盖用例并全量通过
 

@@ -11,7 +11,7 @@
    - `sandboxSymbols()`：从 `yaegi/stdlib.Symbols` 拷贝标准库符号表，**删除 `os/exec`**
    - `apiExports()`：注入自定义包 `tdlui/api`，包含 `FileInfo`、`TaskInfo`、`Log`、`Logf`
 3. **契约提取**：`i.Eval("main.Filter")` 逐个取出函数值并做类型断言（`func(api.FileInfo) bool` 等），签名不符时报错
-4. **安全执行**：所有调用经 `callWithGuard`（Go 泛型）包裹 —— `recover()` 捕获 panic + 超时保护，出错返回 error 而非崩溃
+4. **安全执行**：所有调用经 `callWithGuard`（Go 泛型）包裹 —— `recover()` 捕获 panic + 10 秒超时保护，出错返回 error 而非崩溃
 
 ## 扩展脚本 API 的步骤
 

@@ -25,15 +25,15 @@ src/
 │   ├── events/          # 事件名常量与 Emitter（Wails EventsEmit 封装）
 │   ├── scriptapi/       # 脚本可见类型：FileInfo / TaskInfo / Log
 │   ├── script/          # Yaegi 引擎封装 + 脚本文件 CRUD
-│   ├── engine/          # 下载任务管理器（iter/progress/elem/task）
-│   └── services/        # Wails 绑定服务（Auth/Download/Script/Settings）
+│   ├── engine/          # 下载任务引擎（iter/progress/elem/task/selection/links）
+│   └── services/        # Wails 绑定服务（Auth/Chat/Download/Script/Settings）
 └── frontend/
     ├── src/
     │   ├── api.ts       # window.go 绑定封装（唯一后端调用入口）
     │   ├── types.ts     # 与 Go 结构体对应的 TS 类型契约
     │   ├── theme.ts     # 亮暗主题（localStorage + 跟随系统）
     │   ├── router.ts    # 五页面路由（hash 模式）
-    │   ├── stores/      # Pinia：auth / tasks / scripts / settings
+    │   ├── stores/      # Pinia：auth / chats / tasks / scripts / settings
     │   └── pages/       # 五个页面组件（三段式 SFC）
     └── dist/            # 构建产物（go:embed 嵌入）
 ```
@@ -68,7 +68,7 @@ wails build -ldflags "-s -w" -trimpath
 
 ### 体积说明
 
-当前二进制约 52 MB，主要来自 gotd（Telegram MTProto 实现，含全量 API schema）与 Yaegi（内嵌标准库符号表）。若需要减小体积：
+当前二进制约 50 MB，主要来自 gotd（Telegram MTProto 实现，含全量 API schema）与 Yaegi（内嵌标准库符号表）。若需要减小体积：
 
 ```bash
 upx --best build/bin/tdl-ui.exe   # 约压缩至一半，启动时间略增
@@ -80,6 +80,8 @@ upx --best build/bin/tdl-ui.exe   # 约压缩至一半，启动时间略增
 cd src
 go test ./...                     # 全部后端测试
 go test ./internal/script/ -v    # 脚本引擎测试（契约/panic 恢复/沙箱）
+go test ./internal/engine/ -v    # 引擎测试（链接解析/选集验证）
+go test ./internal/services/ -v  # 服务测试（对话/缩略图）
 ```
 
 ## 下一步

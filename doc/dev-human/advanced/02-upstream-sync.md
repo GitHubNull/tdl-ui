@@ -41,9 +41,13 @@ wails build -ldflags "-s -w" -trimpath
 | `pkg/tmessage` | engine/task.go | 消息链接解析 |
 | `pkg/tplfunc` | engine/iter.go | 命名模板函数 |
 | `pkg/tpath` | services/auth.go | Desktop 路径探测 |
+| `pkg/utils` | engine/iter.go | 字节格式化 |
 | `core/downloader` | engine/ | 下载器本体 |
 | `core/dcpool` / `core/tclient` | engine/task.go | 连接池与中间件 |
-| `core/storage` | services/auth.go、engine/ | 会话与 peer 存储 |
+| `core/storage` | services/auth.go、engine/、services/chat.go | 会话与 peer 存储 |
+| `core/tmedia` | engine/iter.go、engine/elem.go、services/chat.go | 媒体信息提取 |
+| `core/util/fsutil` | engine/progress.go | 文件名处理 |
+| `core/util/tutil` | engine/iter.go、services/chat.go、services/thumb.go | 消息/缩略图工具 |
 
 ## 改写代码的对照升级
 
@@ -71,6 +75,7 @@ git diff <旧版本>..<新版本> -- app/dl/
 - [ ] `go build ./...` 与 `go test ./...` 通过
 - [ ] `wails build` 产出可运行二进制
 - [ ] 登录（三种方式任一）冒烟测试
+- [ ] 对话列表加载 + 媒体浏览冒烟测试
 - [ ] 创建下载任务 + 暂停恢复冒烟测试
 - [ ] 二进制体积无异常膨胀
 - [ ] 用 smart-commit 提交，注明上游版本跨度

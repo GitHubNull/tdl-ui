@@ -30,7 +30,7 @@ func OnTaskDone(t api.TaskInfo)
 | `Total` | int | 文件总数 |
 | `Finished` | int | 已完成数 |
 | `Failed` | int | 失败数 |
-| `Status` | string | 任务状态 |
+| `Status` | string | 任务状态：running / done / failed / canceled |
 
 ## 日志输出
 
@@ -83,7 +83,7 @@ func OnTaskDone(t api.TaskInfo) {
 
 ## 执行语义
 
-- 钩子在**下载引擎所在的后端协程**中同步调用，请避免长耗时操作（有超时保护）
+- 钩子在**下载引擎所在的后端协程**中同步调用，请避免长耗时操作（有 10 秒超时保护）
 - 钩子 panic 不会中断下载任务，错误会记录到脚本日志
 - 任务被取消 / 失败时同样触发 `OnTaskDone`，可通过 `t.Status` 区分
 
