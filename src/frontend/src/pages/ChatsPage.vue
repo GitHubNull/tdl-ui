@@ -1087,10 +1087,32 @@ watch(
 
 .sep {
   color: var(--p-text-muted-color);
+  flex-shrink: 0;
 }
 
 .spacer-flex {
   flex: 1;
+  min-width: 0;
+}
+
+/* 包装器组件（InputNumber/DatePicker）内部 input 跟随包装器宽度，防止溢出遮挡相邻组件 */
+.table-toolbar :deep(.p-inputnumber-input),
+.table-toolbar :deep(.p-datepicker-input) {
+  width: 100%;
+  min-width: 0;
+}
+
+/* 固定宽度输入组件不被挤压 */
+.table-toolbar .w-100,
+.table-toolbar .w-140,
+.table-toolbar .search-input {
+  flex-shrink: 0;
+}
+
+/* 按钮不被挤压、文字不折行 */
+.table-toolbar :deep(.p-button) {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .media-body {

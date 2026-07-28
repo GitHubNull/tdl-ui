@@ -300,12 +300,16 @@ function fmtDate(unix: number) {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 40%;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .mp-meta {
   color: rgb(255 255 255 / 65%);
   font-size: 12px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mp-actions {
@@ -313,6 +317,7 @@ function fmtDate(unix: number) {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .mp-stage {
