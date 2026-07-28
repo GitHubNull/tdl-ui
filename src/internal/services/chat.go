@@ -23,11 +23,11 @@ import (
 	"tdl-ui/internal/engine"
 )
 
-// 对话类型（与 ref/tdl/app/chat 一致）。
+// 对话类型（定义在 engine，与 ref/tdl/app/chat 一致）。
 const (
-	DialogPrivate = "private"
-	DialogGroup   = "group"
-	DialogChannel = "channel"
+	DialogPrivate = engine.DialogPrivate
+	DialogGroup   = engine.DialogGroup
+	DialogChannel = engine.DialogChannel
 )
 
 // 媒体类型。
@@ -71,6 +71,7 @@ type MediaItem struct {
 	MIME      string `json:"mime"`
 	Kind      string `json:"kind"` // video/photo/audio/file
 	Date      int64  `json:"date"` // unix 秒
+	Thumb     string `json:"thumb,omitempty"` // 内嵌模糊占位图（data URI，可空）
 }
 
 // MediaPage 一页媒体查询结果。
@@ -104,13 +105,17 @@ type ChatService struct {
 	jobs     chan chatJob
 	dead     chan struct{}
 
+	// 清晰缩略图内存缓存（key: dialogID/messageID → data URI）
+	thumbMu    sync.Mutex
+	thumbCache map[string]string
+
 	// runClient 建连并驱动任务循环，可注入以便测试；为 nil 时使用真实 Telegram 客户端。
 	runClient func(ctx context.Context, ready chan<- error, jobs <-chan chatJob)
 }
 
 // NewChatService 创建对话服务。
 func NewChatService(cfg *config.Manager, kvs kv.Storage) *ChatService {
-	return &ChatService{cfg: cfg, kv: kvs}
+	return &ChatService{cfg: cfg, kv: kvs, thumbCache: make(map[string]string)}
 }
 
 // Stop 关闭常驻连接（登出后会话失效时调用），下次查询自动重建。
@@ -168,7 +173,7 @@ func (s *ChatService) ListMedia(q MediaQuery) (*MediaPage, error) {
 		}
 		manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(api)
 
-		inputPeer, err := resolveDialogPeer(ctx, manager, q.DialogID, q.DialogType)
+		inputPeer, err := engine.ResolveDialogPeer(ctx, manager, q.DialogID, q.DialogType)
 		if err != nil {
 			return err
 		}
@@ -608,39 +613,6 @@ func visibleName(first, last string) string {
 
 // ---- 媒体查询 ----
 
-// resolveDialogPeer 按对话类型解析输入 peer（依赖对话列表落盘的 access hash）。
-func resolveDialogPeer(ctx context.Context, manager *peers.Manager, id int64, typ string) (tg.InputPeerClass, error) {
-	switch typ {
-	case DialogPrivate:
-		if u, err := manager.ResolveUserID(ctx, id); err == nil {
-			return u.InputPeer(), nil
-		}
-	case DialogChannel:
-		if ch, err := manager.ResolveChannelID(ctx, id); err == nil {
-			return ch.InputPeer(), nil
-		}
-	case DialogGroup:
-		if ch, err := manager.ResolveChannelID(ctx, id); err == nil {
-			return ch.InputPeer(), nil
-		}
-		if c, err := manager.ResolveChatID(ctx, id); err == nil {
-			return c.InputPeer(), nil
-		}
-	}
-
-	// 兜底：依次尝试各类型
-	if ch, err := manager.ResolveChannelID(ctx, id); err == nil {
-		return ch.InputPeer(), nil
-	}
-	if u, err := manager.ResolveUserID(ctx, id); err == nil {
-		return u.InputPeer(), nil
-	}
-	if c, err := manager.ResolveChatID(ctx, id); err == nil {
-		return c.InputPeer(), nil
-	}
-	return nil, errors.New("无法解析该对话，请回到对话列表刷新后重试")
-}
-
 // scanMedia 迭代对话消息，按条件收集一页媒体项。
 // 单次调用最多扫描 maxScan 条消息，防止苛刻过滤条件下调用过久。
 func scanMedia(ctx context.Context, api *tg.Client, inputPeer tg.InputPeerClass, q MediaQuery) (*MediaPage, error) {
@@ -731,7 +703,7 @@ func toMediaItem(dialogID int64, m *tg.Message) (MediaItem, bool) {
 		if !ok {
 			return MediaItem{}, false
 		}
-		return MediaItem{
+		out := MediaItem{
 			DialogID:  dialogID,
 			MessageID: m.ID,
 			Name:      item.Name,
@@ -740,7 +712,11 @@ func toMediaItem(dialogID int64, m *tg.Message) (MediaItem, bool) {
 			MIME:      "image/jpeg",
 			Kind:      KindPhoto,
 			Date:      int64(m.Date),
-		}, true
+		}
+		if p, ok := md.Photo.(*tg.Photo); ok {
+			out.Thumb = strippedThumbURI(p.Sizes)
+		}
+		return out, true
 	case *tg.MessageMediaDocument:
 		doc, ok := md.Document.(*tg.Document)
 		if !ok {
@@ -755,6 +731,7 @@ func toMediaItem(dialogID int64, m *tg.Message) (MediaItem, bool) {
 			MIME:      doc.MimeType,
 			Kind:      kindOfDocument(doc),
 			Date:      int64(m.Date),
+			Thumb:     strippedThumbURI(doc.Thumbs),
 		}, true
 	}
 	return MediaItem{}, false

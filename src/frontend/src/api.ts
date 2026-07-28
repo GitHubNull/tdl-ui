@@ -80,6 +80,8 @@ export const SettingsApi = {
 export const Chat = {
   listDialogs: (): Promise<DialogView[]> => svc('ChatService').ListDialogs(),
   listMedia: (q: MediaQuery): Promise<MediaPage> => svc('ChatService').ListMedia(q),
+  getThumbnail: (dialogId: number, dialogType: string, messageId: number): Promise<string> =>
+    svc('ChatService').GetThumbnail(dialogId, dialogType, messageId),
 }
 
 // ---- 事件契约（与 internal/events/events.go 一致） ----

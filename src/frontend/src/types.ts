@@ -35,9 +35,18 @@ export interface LoginUpdate {
   error?: string
 }
 
+/** engine.Selection（按对话 + 消息 ID 直接选集下载） */
+export interface Selection {
+  dialogId: number
+  dialogType: string
+  messageIds: number[]
+}
+
 /** engine.TaskOptions */
 export interface TaskOptions {
   urls: string[]
+  selections?: Selection[]
+  label?: string
   dir: string
   scriptName: string
   template: string
@@ -51,6 +60,7 @@ export interface TaskOptions {
 export interface TaskView {
   id: string
   urls: string[]
+  label?: string
   dir: string
   scriptName: string
   status: 'queued' | 'running' | 'paused' | 'done' | 'failed' | 'canceled'
@@ -65,6 +75,8 @@ export interface TaskView {
 export interface FileEvent {
   taskId: string
   fileId: number
+  dialogId: number
+  messageId: number
   name: string
   total: number
   downloaded: number
@@ -120,6 +132,7 @@ export interface MediaItem {
   mime: string
   kind: 'video' | 'photo' | 'audio' | 'file'
   date: number // unix 秒
+  thumb?: string // 内嵌模糊占位图（data URI，可空）
 }
 
 /** services.MediaQuery */

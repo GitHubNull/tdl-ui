@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0] - 2026-07-28 21:18:01
+
+### Added
+- 对话页支持选集下载：勾选媒体后按对话 + 消息 ID 直接创建任务，不再依赖 t.me 链接，私聊/普通群消息也可下载。
+- 媒体列表新增缩略图：内嵌模糊占位图（stripped thumb）即时展示，清晰缩略图按需拉取并内存缓存（ChatService.GetThumbnail）。
+- 下载任务支持自定义标签（label），任务列表优先展示标签而非链接。
+
+### Changed
+- ChatDetailPage 合并入 ChatsPage，对话列表与媒体浏览统一为单页交互。
+- 对话类型常量与 peer 解析（ResolveDialogPeer）下沉至 engine 层，供 services 与下载引擎复用。
+
 ## [0.2.0] - 2026-07-28 20:46:24
 
 ### Added

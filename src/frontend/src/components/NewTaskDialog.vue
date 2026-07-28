@@ -6,7 +6,12 @@
     :style="{ width: '560px' }"
     @update:visible="(v: boolean) => emit('update:visible', v)"
   >
-    <div class="form-field">
+    <div v-if="selection" class="selection-summary">
+      <i class="pi pi-images" />
+      <span>将从「<b>{{ selection.title }}</b>」下载 <b>{{ selection.messageIds.length }}</b> 个文件</span>
+    </div>
+
+    <div v-else class="form-field">
       <label for="nt-urls">消息链接（每行一条）</label>
       <Textarea
         id="nt-urls"
@@ -61,7 +66,7 @@
       <Button
         label="创建下载任务"
         icon="pi pi-download"
-        :disabled="!urlList.length"
+        :disabled="selection ? !selection.messageIds.length : !urlList.length"
         :loading="creating"
         @click="create"
       />
@@ -80,10 +85,15 @@ import Select from 'primevue/select'
 import Textarea from 'primevue/textarea'
 
 import { Download } from '../api'
+import type { Selection } from '../types'
 import { useScriptsStore } from '../stores/scripts'
 import { useSettingsStore } from '../stores/settings'
 
-defineProps<{ visible: boolean }>()
+const props = defineProps<{
+  visible: boolean
+  /** 选集模式：指定后隐藏链接输入，直接按对话+消息 ID 下载 */
+  selection?: { dialogId: number; dialogType: string; title: string; messageIds: number[] } | null
+}>()
 const emit = defineEmits<{
   'update:visible': [boolean]
   created: []
@@ -128,8 +138,14 @@ async function browse() {
 async function create() {
   creating.value = true
   try {
+    const sel = props.selection
+    const selections: Selection[] = sel
+      ? [{ dialogId: sel.dialogId, dialogType: sel.dialogType, messageIds: sel.messageIds }]
+      : []
     await Download.createTask({
-      urls: urlList.value,
+      urls: sel ? [] : urlList.value,
+      selections,
+      label: sel ? `${sel.title} × ${sel.messageIds.length} 个文件` : '',
       dir: dir.value,
       scriptName: scriptName.value ?? '',
       template: '',
@@ -150,6 +166,25 @@ async function create() {
 </script>
 
 <style scoped>
+.selection-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  background: var(--p-surface-100);
+  font-size: 13px;
+}
+
+.app-dark .selection-summary {
+  background: var(--p-surface-800);
+}
+
+.selection-summary .pi {
+  color: var(--p-primary-color);
+}
+
 .options-row {
   display: flex;
   gap: 24px;

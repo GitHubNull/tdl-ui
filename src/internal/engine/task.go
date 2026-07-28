@@ -42,22 +42,25 @@ const (
 	StatusCanceled = "canceled"
 )
 
-// TaskOptions 创建任务的参数。
+// TaskOptions 创建任务的参数。URLs 与 Selections 至少一项非空，可混用。
 type TaskOptions struct {
-	URLs       []string `json:"urls"`
-	Dir        string   `json:"dir"`
-	ScriptName string   `json:"scriptName"`
-	Template   string   `json:"template"`
-	RewriteExt bool     `json:"rewriteExt"`
-	SkipSame   bool     `json:"skipSame"`
-	Group      bool     `json:"group"`
-	Restart    bool     `json:"restart"`
+	URLs       []string    `json:"urls"`
+	Selections []Selection `json:"selections"`
+	Label      string      `json:"label"` // 任务显示名（选集下载时由前端提供，如「频道名 × 12 个文件」）
+	Dir        string      `json:"dir"`
+	ScriptName string      `json:"scriptName"`
+	Template   string      `json:"template"`
+	RewriteExt bool        `json:"rewriteExt"`
+	SkipSame   bool        `json:"skipSame"`
+	Group      bool        `json:"group"`
+	Restart    bool        `json:"restart"`
 }
 
 // TaskView 任务视图（前端展示 / task:update 事件负载）。
 type TaskView struct {
 	ID         string   `json:"id"`
 	URLs       []string `json:"urls"`
+	Label      string   `json:"label,omitempty"`
 	Dir        string   `json:"dir"`
 	ScriptName string   `json:"scriptName"`
 	Status     string   `json:"status"`
@@ -114,11 +117,19 @@ func NewManager(deps Deps) *Manager {
 
 // Create 创建并启动下载任务，返回任务 ID。
 func (m *Manager) Create(opts TaskOptions) (string, error) {
-	urls, err := NormalizeURLs(opts.URLs)
-	if err != nil {
+	if len(opts.URLs) == 0 && len(opts.Selections) == 0 {
+		return "", errors.New("至少需要一条消息链接或一个选集")
+	}
+	if len(opts.URLs) > 0 {
+		urls, err := NormalizeURLs(opts.URLs)
+		if err != nil {
+			return "", err
+		}
+		opts.URLs = urls
+	}
+	if err := validateSelections(opts.Selections); err != nil {
 		return "", err
 	}
-	opts.URLs = urls
 	if opts.Dir == "" {
 		opts.Dir = m.deps.Cfg.Get().DownloadDir
 	}
@@ -328,12 +339,25 @@ func (m *Manager) execute(ctx context.Context, t *Task) (rerr error) {
 			coretclient.NewDefaultMiddlewares(ctx, reconnectTimeout)...)
 		defer func() { _ = pool.Close() }()
 
-		dialogs, err := tmessage.Parse(tmessage.FromURL(ctx, pool, kvd, t.opts.URLs))
-		if err != nil {
-			return errors.Wrap(err, "解析消息链接失败")
+		var dialogs []*tmessage.Dialog
+		if len(t.opts.URLs) > 0 {
+			d, err := tmessage.Parse(tmessage.FromURL(ctx, pool, kvd, t.opts.URLs))
+			if err != nil {
+				return errors.Wrap(err, "解析消息链接失败")
+			}
+			dialogs = d
 		}
 
 		manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(pool.Default(ctx))
+
+		// 选集下载：按对话 + 消息 ID 直接解析，与链接结果合并
+		if len(t.opts.Selections) > 0 {
+			d, err := selectionsToDialogs(ctx, manager, t.opts.Selections)
+			if err != nil {
+				return err
+			}
+			dialogs = append(dialogs, d...)
+		}
 
 		it, err := newIter(pool, manager, dialogs, IterOptions{
 			Dir:        t.opts.Dir,
@@ -425,6 +449,7 @@ func (t *Task) view() TaskView {
 	return TaskView{
 		ID:         t.ID,
 		URLs:       t.opts.URLs,
+		Label:      t.opts.Label,
 		Dir:        t.opts.Dir,
 		ScriptName: t.opts.ScriptName,
 		Status:     t.status,

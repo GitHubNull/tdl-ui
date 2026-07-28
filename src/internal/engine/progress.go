@@ -19,6 +19,8 @@ import (
 type FileEvent struct {
 	TaskID     string `json:"taskId"`
 	FileID     int    `json:"fileId"`
+	DialogID   int64  `json:"dialogId"`
+	MessageID  int    `json:"messageId"`
 	Name       string `json:"name"`
 	Total      int64  `json:"total"`
 	Downloaded int64  `json:"downloaded"`
@@ -138,6 +140,8 @@ func (p *progress) emit(e *iterElem, total, downloaded int64, state string, err 
 	ev := FileEvent{
 		TaskID:     p.task.ID,
 		FileID:     e.id,
+		DialogID:   e.info.DialogID,
+		MessageID:  e.info.MessageID,
 		Name:       strings.TrimSuffix(filepath.Base(e.to.Name()), tempExt),
 		Total:      total,
 		Downloaded: downloaded,

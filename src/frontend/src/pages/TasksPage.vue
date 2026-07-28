@@ -17,7 +17,7 @@
     <div v-for="t in tasks.tasks" :key="t.id" class="task-card">
       <div class="row">
         <Tag :value="statusLabel(t.status)" :severity="statusSeverity(t.status)" />
-        <span class="title" :title="t.urls.join('\n')">{{ taskTitle(t) }}</span>
+        <span class="title" :title="t.label || t.urls.join('\n')">{{ taskTitle(t) }}</span>
         <span class="meta">{{ t.finished }}/{{ t.total || '?' }} 个文件</span>
 
         <Button
@@ -148,6 +148,7 @@ function isFinal(s: string) {
 }
 
 function taskTitle(t: TaskView) {
+  if (t.label) return t.label
   const first = t.urls[0] ?? ''
   return t.urls.length > 1 ? `${first} 等 ${t.urls.length} 条链接` : first
 }
