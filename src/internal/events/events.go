@@ -18,6 +18,8 @@ const (
 	TaskFile = "task:file"
 	// ScriptLog 脚本日志事件，payload 为字符串
 	ScriptLog = "script:log"
+	// Log 应用日志批量事件，payload 为 []logging.LogEntry
+	Log = "log:batch"
 )
 
 // LoginUpdate 登录事件负载。

@@ -21,7 +21,10 @@ import (
 
 	"tdl-ui/internal/config"
 	"tdl-ui/internal/engine"
+	"tdl-ui/internal/logging"
 )
+
+var logChat = logging.L("chat")
 
 // 对话类型（定义在 engine，与 ref/tdl/app/chat 一致）。
 const (
@@ -125,12 +128,14 @@ func (s *ChatService) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cancel != nil {
+		logChat.Infof("停止常驻 Telegram 连接")
 		s.cancel()
 	}
 }
 
 // ListDialogs 返回当前账号的全部对话（私聊 / 群组 / 频道）。
 func (s *ChatService) ListDialogs() ([]Dialog, error) {
+	logChat.Debugf("开始拉取对话列表")
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
@@ -150,13 +155,16 @@ func (s *ChatService) ListDialogs() ([]Dialog, error) {
 		return nil
 	})
 	if err != nil {
+		logChat.Errorf("拉取对话列表失败: %v", err)
 		return nil, err
 	}
+	logChat.Infof("对话列表拉取完成，共 %d 个对话", len(out))
 	return out, nil
 }
 
 // ListMedia 游标分页查询对话内的媒体文件（视频 / 图片 / 音频 / 文档）。
 func (s *ChatService) ListMedia(q MediaQuery) (*MediaPage, error) {
+	logChat.Debugf("查询媒体: dialog=%d type=%s offset=%d limit=%d kinds=%v query=%q", q.DialogID, q.DialogType, q.OffsetID, q.Limit, q.Kinds, q.Query)
 	if q.DialogID == 0 {
 		return nil, errors.New("缺少对话 ID")
 	}
@@ -184,8 +192,10 @@ func (s *ChatService) ListMedia(q MediaQuery) (*MediaPage, error) {
 		return err
 	})
 	if err != nil {
+		logChat.Errorf("查询媒体失败: dialog=%d err=%v", q.DialogID, err)
 		return nil, err
 	}
+	logChat.Debugf("媒体查询完成: dialog=%d items=%d nextOffset=%d", q.DialogID, len(page.Items), page.NextOffset)
 	return page, nil
 }
 
@@ -251,6 +261,7 @@ func (s *ChatService) ensureStarted() error {
 
 // start 建连 → 等待授权校验结果（带超时）→ 发布运行状态。
 func (s *ChatService) start() error {
+	logChat.Infof("启动常驻 Telegram 连接")
 	runCtx, cancel := context.WithCancel(context.Background())
 	jobs := make(chan chatJob)
 	dead := make(chan struct{})
@@ -278,6 +289,7 @@ func (s *ChatService) start() error {
 	select {
 	case err := <-ready:
 		if err != nil {
+			logChat.Errorf("Telegram 建连失败: %v", err)
 			cancel()
 			return err
 		}
@@ -294,6 +306,7 @@ func (s *ChatService) start() error {
 		return errors.New("Telegram 连接意外退出，请重试")
 	case <-time.After(connectTimeout):
 		cancel()
+		logChat.Errorf("连接 Telegram 超时（%s）", connectTimeout)
 		return errors.New("连接 Telegram 超时，请检查网络或在「设置」中配置代理")
 	}
 
@@ -308,6 +321,7 @@ func (s *ChatService) start() error {
 	s.cancel = cancel
 	s.jobs = jobs
 	s.dead = dead
+	logChat.Infof("Telegram 连接就绪")
 	return nil
 }
 

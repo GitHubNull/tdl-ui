@@ -147,6 +147,7 @@ func (p *progress) donePost(e *iterElem) (string, error) {
 }
 
 func (p *progress) fail(e *iterElem, err error) {
+	logEngine.Errorf("文件下载失败: task=%s 文件=%s err=%v", p.task.ID, filepath.Base(e.to.Name()), err)
 	p.task.markFileFailed(e.to.Name())
 	p.task.onFileFailed()
 	p.emit(e, e.file.Size, 0, "failed", err)

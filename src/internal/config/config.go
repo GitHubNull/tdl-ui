@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"tdl-ui/internal/logging"
 )
 
 // Settings 应用全局设置。
@@ -29,6 +31,8 @@ type Settings struct {
 	LoggedInUserID int64 `json:"loggedInUserId"`
 	// LoggedInUsername 最近一次登录成功的用户名（仅用于界面展示）
 	LoggedInUsername string `json:"loggedInUsername"`
+	// Log 日志配置（输出目标、级别、目录、格式与滚动策略）
+	Log logging.LogSettings `json:"log"`
 }
 
 // DefaultTemplate 与 tdl CLI 默认命名模板保持一致。
@@ -72,6 +76,7 @@ func defaultSettings() Settings {
 		Limit:       2,
 		PoolSize:    8,
 		Theme:       "system",
+		Log:         logging.DefaultSettings(),
 	}
 }
 
@@ -109,6 +114,7 @@ func (m *Manager) Update(s Settings) error {
 	if s.PoolSize <= 0 {
 		s.PoolSize = 8
 	}
+	s.Log = s.Log.WithDefaults()
 	m.settings = s
 	m.mu.Unlock()
 	return m.save()
@@ -121,7 +127,12 @@ func (m *Manager) load() error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return json.Unmarshal(b, &m.settings)
+	if err := json.Unmarshal(b, &m.settings); err != nil {
+		return err
+	}
+	// 旧版 settings.json 无 log 字段时补齐默认值
+	m.settings.Log = m.settings.Log.WithDefaults()
+	return nil
 }
 
 func (m *Manager) save() error {

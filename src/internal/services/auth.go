@@ -27,7 +27,10 @@ import (
 	"tdl-ui/internal/config"
 	"tdl-ui/internal/engine"
 	"tdl-ui/internal/events"
+	"tdl-ui/internal/logging"
 )
+
+var logAuth = logging.L("auth")
 
 // reconnectTimeout 登录客户端断线重连超时。
 const reconnectTimeout = 5 * time.Minute
@@ -76,6 +79,7 @@ func (s *AuthService) StartCodeLogin(phone string) error {
 	if phone == "" {
 		return errors.New("手机号不能为空")
 	}
+	logAuth.Infof("启动验证码登录: %s", maskPhone(phone))
 
 	ctx, err := s.begin()
 	if err != nil {
@@ -88,6 +92,7 @@ func (s *AuthService) StartCodeLogin(phone string) error {
 
 // StartQRLogin 启动二维码登录流程，二维码 URL 通过 login:update(stage=qr) 事件推送。
 func (s *AuthService) StartQRLogin() error {
+	logAuth.Infof("启动二维码登录")
 	ctx, err := s.begin()
 	if err != nil {
 		return err
@@ -99,6 +104,7 @@ func (s *AuthService) StartQRLogin() error {
 
 // SubmitCode 提交收到的验证码。
 func (s *AuthService) SubmitCode(code string) {
+	logAuth.Debugf("收到验证码提交")
 	s.mu.Lock()
 	ch := s.codeCh
 	s.mu.Unlock()
@@ -112,6 +118,7 @@ func (s *AuthService) SubmitCode(code string) {
 
 // SubmitPassword 提交二步验证密码。
 func (s *AuthService) SubmitPassword(pwd string) {
+	logAuth.Debugf("收到二步验证密码提交")
 	s.mu.Lock()
 	ch := s.pwdCh
 	s.mu.Unlock()
@@ -125,6 +132,7 @@ func (s *AuthService) SubmitPassword(pwd string) {
 
 // CancelLogin 取消进行中的登录流程。
 func (s *AuthService) CancelLogin() {
+	logAuth.Infof("取消登录流程")
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cancel != nil {
@@ -135,14 +143,17 @@ func (s *AuthService) CancelLogin() {
 
 // Logout 清除本地会话数据。
 func (s *AuthService) Logout() error {
+	logAuth.Infof("开始登出，清除本地会话")
 	kvd, err := s.kv.Open(engine.Namespace)
 	if err != nil {
+		logAuth.Errorf("登出失败（open kv）: %v", err)
 		return errors.Wrap(err, "open kv")
 	}
 
 	ctx := context.Background()
 	// 会话与 App 标记（key 与 core/storage/session.go 保持一致）
 	if err = kvd.Delete(ctx, keygen.New("session")); err != nil && !errors.Is(err, storage.ErrNotFound) {
+		logAuth.Errorf("登出失败（删除会话）: %v", err)
 		return errors.Wrap(err, "delete session")
 	}
 	_ = kvd.Delete(ctx, key.App())
@@ -158,6 +169,7 @@ func (s *AuthService) Logout() error {
 	if s.OnLogout != nil {
 		s.OnLogout()
 	}
+	logAuth.Infof("登出完成")
 	return nil
 }
 
@@ -171,9 +183,11 @@ func (s *AuthService) DetectDesktopPath() string {
 	home := s.homeDir()
 	for _, p := range tpath.Desktop.AppData(home) {
 		if path := appendTData(p); fsutil.PathExists(path) {
+			logAuth.Debugf("探测到 Telegram Desktop 数据目录: %s", path)
 			return path
 		}
 	}
+	logAuth.Debugf("未探测到 Telegram Desktop 数据目录")
 	return ""
 }
 
@@ -185,6 +199,7 @@ func (s *AuthService) ListDesktopAccounts(path, passcode string) ([]DesktopAccou
 
 	accounts, err := tdtdesktop.Read(appendTData(path), []byte(passcode))
 	if err != nil {
+		logAuth.Errorf("读取 Desktop 会话失败: %v", err)
 		return nil, errors.Wrap(err, "读取 Desktop 会话失败")
 	}
 
@@ -192,14 +207,17 @@ func (s *AuthService) ListDesktopAccounts(path, passcode string) ([]DesktopAccou
 	for _, acc := range accounts {
 		out = append(out, DesktopAccount{UserID: strconv.FormatUint(acc.Authorization.UserID, 10)})
 	}
+	logAuth.Infof("Desktop 会话中检测到 %d 个账号", len(out))
 	return out, nil
 }
 
 // ImportDesktopSession 导入指定账号的 Desktop 会话（对应 ref/tdl/app/login/desktop.go），
 // 并建连校验会话有效性；校验失败时回滚已写入的会话，避免出现假登录态。
 func (s *AuthService) ImportDesktopSession(path, passcode, userID string) error {
+	logAuth.Infof("导入 Desktop 会话，账号 %s", userID)
 	accounts, err := tdtdesktop.Read(appendTData(path), []byte(passcode))
 	if err != nil {
+		logAuth.Errorf("读取 Desktop 会话失败: %v", err)
 		return errors.Wrap(err, "读取 Desktop 会话失败")
 	}
 
@@ -236,6 +254,7 @@ func (s *AuthService) ImportDesktopSession(path, passcode, userID string) error 
 	// 建连校验：会话无效时回滚，不留下假登录态
 	user, err := s.verifySession(ctx, kvd)
 	if err != nil {
+		logAuth.Errorf("Desktop 会话校验失败，已回滚: %v", err)
 		s.clearSession(ctx, kvd)
 		return err
 	}
@@ -359,6 +378,7 @@ func (s *AuthService) runCodeLogin(ctx context.Context, phone string) {
 	}()
 
 	if err != nil && !errors.Is(err, context.Canceled) {
+		logAuth.Errorf("验证码登录失败: %v", err)
 		s.emitter.Emit(events.Login, events.LoginUpdate{Stage: "error", Error: err.Error()})
 	}
 }
@@ -419,6 +439,7 @@ func (s *AuthService) runQRLogin(ctx context.Context) {
 	}()
 
 	if err != nil && !errors.Is(err, context.Canceled) {
+		logAuth.Errorf("二维码登录失败: %v", err)
 		s.emitter.Emit(events.Login, events.LoginUpdate{Stage: "error", Error: err.Error()})
 	}
 }
@@ -439,6 +460,7 @@ func (s *AuthService) waitPassword(ctx context.Context) (string, error) {
 }
 
 func (s *AuthService) loginSuccess(user *tg.User) {
+	logAuth.Infof("登录成功，用户 ID %d", user.ID)
 	s.saveUser(user.ID, user.Username)
 	name := strings.TrimSpace(user.FirstName + " " + user.LastName)
 	s.emitter.Emit(events.Login, events.LoginUpdate{
@@ -460,6 +482,14 @@ func (s *AuthService) homeDir() string {
 		return ""
 	}
 	return home
+}
+
+// maskPhone 手机号脱敏：仅保留末 4 位。
+func maskPhone(phone string) string {
+	if len(phone) <= 4 {
+		return "****"
+	}
+	return strings.Repeat("*", len(phone)-4) + phone[len(phone)-4:]
 }
 
 // guiAuth 实现 gotd 的 auth.UserAuthenticator：

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -24,9 +23,12 @@ import (
 
 	"tdl-ui/internal/config"
 	"tdl-ui/internal/events"
+	"tdl-ui/internal/logging"
 	"tdl-ui/internal/script"
 	"tdl-ui/internal/scriptapi"
 )
+
+var logEngine = logging.L("engine")
 
 // Namespace 与 tdl CLI 默认命名空间保持一致，Telegram 会话数据互不干扰地存于自身 kv 目录。
 const Namespace = "default"
@@ -133,7 +135,7 @@ func (m *Manager) restore() {
 	}
 	recs, err := loadRecords(m.statePath)
 	if err != nil {
-		log.Printf("加载任务记录失败: %v", err)
+		logEngine.Errorf("加载任务记录失败: %v", err)
 		return
 	}
 	for _, r := range recs {
@@ -171,7 +173,7 @@ func (m *Manager) persist() {
 	m.mu.Unlock()
 
 	if err := saveRecords(m.statePath, recs); err != nil {
-		log.Printf("保存任务记录失败: %v", err)
+		logEngine.Errorf("保存任务记录失败: %v", err)
 	}
 }
 
@@ -224,6 +226,7 @@ func (m *Manager) Create(opts TaskOptions) (string, error) {
 	m.order = append(m.order, t.ID)
 	m.mu.Unlock()
 
+	logEngine.Infof("任务已创建: id=%s 链接数=%d 选集数=%d 目录=%s", t.ID, len(opts.URLs), len(opts.Selections), opts.Dir)
 	t.emitUpdate()
 	go m.run(t)
 
@@ -256,6 +259,7 @@ func (m *Manager) Pause(id string) error {
 	}
 	t.paused = true
 	t.cancel()
+	logEngine.Infof("任务暂停中: id=%s", id)
 	return nil
 }
 
@@ -289,6 +293,7 @@ func (m *Manager) Resume(id string) error {
 	t.opts.Restart = false // 恢复必然走断点续传
 	t.mu.Unlock()
 
+	logEngine.Infof("任务恢复: id=%s", id)
 	t.emitUpdate()
 	go m.run(t)
 	return nil
@@ -308,6 +313,7 @@ func (m *Manager) Cancel(id string) error {
 	}
 	t.paused = false
 	t.cancel()
+	logEngine.Infof("任务取消中: id=%s", id)
 	return nil
 }
 
@@ -526,6 +532,7 @@ func (m *Manager) run(t *Task) {
 	t.runDone = runDone
 	t.status = StatusRunning
 	t.mu.Unlock()
+	logEngine.Infof("任务开始运行: id=%s", t.ID)
 	t.emitUpdate()
 
 	_ = t.contracts.SafeOnTaskStart(t.info())
@@ -549,8 +556,15 @@ func (m *Manager) run(t *Task) {
 		t.status = StatusFailed
 		t.errMsg = err.Error()
 	}
+	status := t.status
 	t.mu.Unlock()
 	close(runDone)
+
+	if status == StatusFailed {
+		logEngine.Errorf("任务失败: id=%s err=%v", t.ID, err)
+	} else {
+		logEngine.Infof("任务结束: id=%s 状态=%s", t.ID, status)
+	}
 
 	t.emitUpdate()
 	_ = t.contracts.SafeOnTaskDone(t.info())

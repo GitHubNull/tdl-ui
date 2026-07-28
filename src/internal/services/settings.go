@@ -2,7 +2,10 @@ package services
 
 import (
 	"tdl-ui/internal/config"
+	"tdl-ui/internal/logging"
 )
+
+var logSettings = logging.L("settings")
 
 // SettingsService 应用设置读写。
 type SettingsService struct {
@@ -17,9 +20,15 @@ func NewSettingsService(cfg *config.Manager) *SettingsService {
 // Get 获取当前设置。
 func (s *SettingsService) Get() config.Settings { return s.cfg.Get() }
 
-// Save 保存设置。
+// Save 保存设置，日志配置立即热生效。
 func (s *SettingsService) Save(settings config.Settings) error {
-	return s.cfg.Update(settings)
+	if err := s.cfg.Update(settings); err != nil {
+		logSettings.Errorf("保存设置失败: %v", err)
+		return err
+	}
+	logging.Reconfigure(s.cfg.Get().Log)
+	logSettings.Infof("设置已保存，日志配置已热更新（级别=%s 目标=%s）", s.cfg.Get().Log.Level, s.cfg.Get().Log.Targets)
+	return nil
 }
 
 // DataDir 返回应用数据目录（用于界面展示）。

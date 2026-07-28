@@ -13,6 +13,15 @@ const defaults = (): Settings => ({
   theme: 'system',
   loggedInUserId: 0,
   loggedInUsername: '',
+  log: {
+    targets: 'both',
+    level: 'info',
+    dir: '',
+    format: '',
+    maxSizeMb: 10,
+    maxAgeDays: 7,
+    maxBackups: 10,
+  },
 })
 
 /** 应用设置。 */
@@ -27,7 +36,9 @@ export const useSettingsStore = defineStore('settings', {
       if (this.inited) return
       this.inited = true
       try {
-        this.settings = await SettingsApi.get()
+        const remote = await SettingsApi.get()
+        // 旧版本 settings.json 可能缺少 log 字段，用默认值兜底防表单绑定 undefined
+        this.settings = { ...defaults(), ...remote, log: { ...defaults().log, ...(remote.log ?? {}) } }
         this.dataDir = await SettingsApi.dataDir()
       } catch {
         /* 非 Wails 环境忽略 */

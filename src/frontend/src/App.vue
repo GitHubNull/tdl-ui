@@ -61,6 +61,7 @@ import { useAuthStore } from './stores/auth'
 import { useTasksStore } from './stores/tasks'
 import { useScriptsStore } from './stores/scripts'
 import { useSettingsStore } from './stores/settings'
+import { useLogsStore } from './stores/logs'
 
 const navItems = computed(() =>
   router.options.routes
@@ -95,6 +96,7 @@ onMounted(async () => {
     useTasksStore().init(),
     useScriptsStore().init(),
     useSettingsStore().init(),
+    useLogsStore().init(),
   ])
   dark.value = document.documentElement.classList.contains('app-dark')
 })

@@ -3,7 +3,11 @@ package services
 import (
 	"net/http"
 	"strconv"
+
+	"tdl-ui/internal/logging"
 )
+
+var logMedia = logging.L("media")
 
 // NewMediaHandler 缩略图/预览图 HTTP 服务（挂载于 Wails assetserver 的兜底 Handler）：
 //
@@ -33,6 +37,7 @@ func serveMediaImage(s *ChatService, w http.ResponseWriter, r *http.Request, pre
 
 	b, err := s.thumbJPEG(dialogID, q.Get("t"), msgID, preview)
 	if err != nil {
+		logMedia.Debugf("缩略图拉取失败: dialog=%d msg=%d preview=%v err=%v", dialogID, msgID, preview, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

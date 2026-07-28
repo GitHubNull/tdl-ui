@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0] - 2026-07-29 00:35:07
+
+### Added
+- 新增完整日志记录与浏览功能。
+- 后端日志核心（`internal/logging`）：基于 zap + lumberjack，支持多目标输出（文件+UI）、格式模板、文件滚动（MaxSize/MaxAge/MaxBackups）、内存环形缓冲（5000 条）与 250ms 批量事件推送。
+- 后端全面埋点：app/auth/chat/download/engine/script/settings/media 等模块公开方法入口与错误分支。
+- 新增 `LogService` Wails 绑定：实时日志快照、历史日志文件列表与读取、YAML 配置导入/导出、打开日志目录。
+- 前端新增「日志」标签页（`/logs`）：VirtualScroller 类终端视图、行号沟槽、语法高亮、正则/大小写/自动跳转搜索、级别过滤、跟随滚动、历史文件浏览。
+- 设置页新增「日志」配置区：输出目标、日志级别、目录、格式模板、滚动策略，支持 YAML 导入/导出。
+- 数据目录下 `logging.yaml` 启动时自动加载；设置保存即热生效。
 ## [0.4.0] - 2026-07-28 23:36:21
 
 ### Added
@@ -53,3 +63,5 @@
 - 添加 Wails 桌面应用框架基础结构。
 - 添加前端 Vue 3 + PrimeVue 基础架构。
 - 添加项目文档与基础配置文件。
+
+

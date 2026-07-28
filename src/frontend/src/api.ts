@@ -4,6 +4,9 @@
 import type {
   DesktopAccount,
   DialogView,
+  LogEntry,
+  LogFileInfo,
+  LogSettings,
   LoginStatus,
   MediaPage,
   MediaQuery,
@@ -89,6 +92,17 @@ export const Chat = {
   listMedia: (q: MediaQuery): Promise<MediaPage> => svc('ChatService').ListMedia(q),
 }
 
+// ---- LogService ----
+export const LogApi = {
+  getRecent: (): Promise<LogEntry[]> => svc('LogService').GetRecent(),
+  listLogFiles: (): Promise<LogFileInfo[]> => svc('LogService').ListLogFiles(),
+  readLogFile: (name: string, maxLines: number): Promise<string[]> =>
+    svc('LogService').ReadLogFile(name, maxLines),
+  importYAMLConfig: (): Promise<LogSettings> => svc('LogService').ImportYAMLConfig(),
+  exportYAMLConfig: (): Promise<void> => svc('LogService').ExportYAMLConfig(),
+  openLogDir: (): Promise<void> => svc('LogService').OpenLogDir(),
+}
+
 // ---- 媒体图 HTTP 通道（后端 assetserver Handler，浏览器接管并发与缓存） ----
 export function thumbURL(dialogId: number, dialogType: string, messageId: number): string {
   return `/media/thumb?d=${dialogId}&m=${messageId}&t=${encodeURIComponent(dialogType)}`
@@ -103,6 +117,7 @@ export const EVENT_LOGIN = 'login:update'
 export const EVENT_TASK = 'task:update'
 export const EVENT_TASK_FILE = 'task:file'
 export const EVENT_SCRIPT_LOG = 'script:log'
+export const EVENT_LOG = 'log:batch'
 
 /** 订阅 Wails 事件，返回取消函数；非 Wails 环境下为 no-op。 */
 export function on<T = any>(event: string, cb: (payload: T) => void): () => void {

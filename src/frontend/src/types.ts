@@ -1,5 +1,16 @@
 // 与后端 Go 结构体一一对应的类型契约（JSON tag 命名）。
 
+/** logging.LogSettings */
+export interface LogSettings {
+  targets: 'file' | 'ui' | 'both'
+  level: 'debug' | 'info' | 'warn' | 'error'
+  dir: string
+  format: string
+  maxSizeMb: number
+  maxAgeDays: number
+  maxBackups: number
+}
+
 /** internal/config.Settings */
 export interface Settings {
   proxy: string
@@ -11,6 +22,27 @@ export interface Settings {
   theme: 'light' | 'dark' | 'system'
   loggedInUserId: number
   loggedInUsername: string
+  log: LogSettings
+}
+
+/** logging.LogEntry（log:batch 事件负载元素） */
+export interface LogEntry {
+  seq: number
+  time: string
+  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | string
+  module: string
+  file: string
+  func: string
+  line: number
+  msg: string
+  text: string
+}
+
+/** services.LogFileInfo */
+export interface LogFileInfo {
+  name: string
+  size: number
+  modTime: number // unix 秒
 }
 
 /** services.LoginStatus */

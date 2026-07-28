@@ -3,8 +3,11 @@ package services
 import (
 	"fmt"
 
+	"tdl-ui/internal/logging"
 	"tdl-ui/internal/script"
 )
+
+var logScript = logging.L("script")
 
 // ScriptService 用户脚本管理：CRUD、校验与试运行。
 type ScriptService struct {
@@ -23,10 +26,24 @@ func (s *ScriptService) List() ([]script.Meta, error) { return s.store.List() }
 func (s *ScriptService) Read(name string) (string, error) { return s.store.Read(name) }
 
 // Save 保存脚本源码。
-func (s *ScriptService) Save(name, src string) error { return s.store.Write(name, src) }
+func (s *ScriptService) Save(name, src string) error {
+	logScript.Infof("保存脚本: %s（%d 字节）", name, len(src))
+	if err := s.store.Write(name, src); err != nil {
+		logScript.Errorf("保存脚本失败: %s err=%v", name, err)
+		return err
+	}
+	return nil
+}
 
 // Delete 删除脚本。
-func (s *ScriptService) Delete(name string) error { return s.store.Delete(name) }
+func (s *ScriptService) Delete(name string) error {
+	logScript.Infof("删除脚本: %s", name)
+	if err := s.store.Delete(name); err != nil {
+		logScript.Errorf("删除脚本失败: %s err=%v", name, err)
+		return err
+	}
+	return nil
+}
 
 // ValidateResult 脚本校验结果。
 type ValidateResult struct {
@@ -39,6 +56,7 @@ type ValidateResult struct {
 func (s *ScriptService) Validate(src string) ValidateResult {
 	c, err := script.Load(src)
 	if err != nil {
+		logScript.Warnf("脚本校验失败: %v", err)
 		return ValidateResult{OK: false, Error: err.Error()}
 	}
 
@@ -72,8 +90,10 @@ type TestRunResult struct {
 
 // TestRun 用内置示例文件信息试运行 Filter/Rename。
 func (s *ScriptService) TestRun(src string) TestRunResult {
+	logScript.Debugf("脚本试运行（%d 字节）", len(src))
 	c, err := script.Load(src)
 	if err != nil {
+		logScript.Warnf("脚本试运行编译失败: %v", err)
 		return TestRunResult{OK: false, Error: err.Error()}
 	}
 
