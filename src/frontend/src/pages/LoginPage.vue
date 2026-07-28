@@ -93,7 +93,7 @@
               <div v-for="acc in accounts" :key="acc.userId" class="form-row account-row">
                 <i class="pi pi-user" />
                 <span class="grow">用户 ID：{{ acc.userId }}</span>
-                <Button label="导入该账号" size="small" @click="importAccount(acc.userId)" />
+                <Button label="导入该账号" size="small" :loading="busy" @click="importAccount(acc.userId)" />
               </div>
             </div>
           </TabPanel>
@@ -225,11 +225,19 @@ async function listAccounts() {
 }
 
 async function importAccount(userId: string) {
+  busy.value = true
   try {
     await Auth.importDesktopSession(desktopPath.value, passcode.value, userId)
-    toast.add({ severity: 'success', summary: '导入成功', life: 3000 })
+    toast.add({
+      severity: 'success',
+      summary: '导入成功',
+      detail: '若 Telegram Desktop 仍在运行，双端共用会话可能触发冲突导致双双掉线，建议退出 Desktop 端登录。',
+      life: 8000,
+    })
   } catch (e: any) {
     toast.add({ severity: 'error', summary: '导入失败', detail: String(e), life: 5000 })
+  } finally {
+    busy.value = false
   }
 }
 

@@ -79,7 +79,10 @@ type MediaPage struct {
 	NextOffset int         `json:"nextOffset"` // 0=没有更多
 }
 
-var errNotLoggedIn = errors.New("尚未登录，请先在「账号」页登录")
+var errNotLoggedIn = errors.New("尚未登录或会话已失效，请在「账号」页重新登录或重新导入 Desktop 会话")
+
+// connectTimeout 建连与授权校验的等待上限；var 便于测试缩短。
+var connectTimeout = 30 * time.Second
 
 // chatJob 投递给常驻客户端执行循环的查询任务。
 type chatJob struct {
@@ -94,11 +97,15 @@ type ChatService struct {
 	cfg *config.Manager
 	kv  kv.Storage
 
-	mu      sync.Mutex
-	running bool
-	cancel  context.CancelFunc
-	jobs    chan chatJob
-	dead    chan struct{}
+	mu       sync.Mutex
+	running  bool
+	starting chan struct{} // 非 nil 表示建连进行中，关闭即结束
+	cancel   context.CancelFunc
+	jobs     chan chatJob
+	dead     chan struct{}
+
+	// runClient 建连并驱动任务循环，可注入以便测试；为 nil 时使用真实 Telegram 客户端。
+	runClient func(ctx context.Context, ready chan<- error, jobs <-chan chatJob)
 }
 
 // NewChatService 创建对话服务。
@@ -206,76 +213,144 @@ func (s *ChatService) invoke(ctx context.Context, fn func(ctx context.Context, a
 	}
 }
 
-// ensureStarted 懒启动常驻客户端：建连 → 校验登录态 → 进入任务执行循环。
+// ensureStarted 懒启动常驻客户端。
+// 不在持锁状态下等待建连结果，避免与执行协程的收尾逻辑互锁；
+// 并发调用时仅有一个建连流程，其余调用等待其结果后重新检查。
 func (s *ChatService) ensureStarted() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.running {
-		return nil
-	}
+	for {
+		s.mu.Lock()
+		if s.running {
+			s.mu.Unlock()
+			return nil
+		}
+		if ch := s.starting; ch != nil {
+			s.mu.Unlock()
+			<-ch // 其他调用正在建连，结束后重新检查状态
+			continue
+		}
+		starting := make(chan struct{})
+		s.starting = starting
+		s.mu.Unlock()
 
-	kvd, err := s.kv.Open(engine.Namespace)
-	if err != nil {
-		return errors.Wrap(err, "open kv")
-	}
+		err := s.start()
 
-	c, err := pkgtclient.New(context.Background(), pkgtclient.Options{
-		KV:               kvd,
-		Proxy:            s.cfg.Get().Proxy,
-		ReconnectTimeout: reconnectTimeout,
-	}, false)
-	if err != nil {
-		return errors.Wrap(err, "create client")
+		s.mu.Lock()
+		s.starting = nil
+		s.mu.Unlock()
+		close(starting)
+		return err
 	}
+}
 
+// start 建连 → 等待授权校验结果（带超时）→ 发布运行状态。
+func (s *ChatService) start() error {
 	runCtx, cancel := context.WithCancel(context.Background())
 	jobs := make(chan chatJob)
 	dead := make(chan struct{})
 	ready := make(chan error, 1)
 
+	run := s.runClient
+	if run == nil {
+		run = s.runTelegramClient
+	}
+
 	go func() {
-		defer close(dead)
 		defer cancel()
+		run(runCtx, ready, jobs)
 
-		_ = c.Run(runCtx, func(ctx context.Context) error {
-			st, err := c.Auth().Status(ctx)
-			if err != nil {
-				ready <- errors.Wrap(err, "查询登录状态失败")
-				return err
-			}
-			if !st.Authorized {
-				ready <- errNotLoggedIn
-				return errNotLoggedIn
-			}
-			ready <- nil
-
-			for {
-				select {
-				case j := <-jobs:
-					j.done <- j.fn(ctx, c.API())
-				case <-ctx.Done():
-					return nil
-				}
-			}
-		})
-
+		// 先宣告退出再抢锁复位，确保任何等待 dead 的一方不会与本协程互锁
+		close(dead)
 		s.mu.Lock()
-		s.running = false
-		s.cancel = nil
+		if s.dead == dead { // 仅清理本次连接发布的状态
+			s.running = false
+			s.cancel = nil
+		}
 		s.mu.Unlock()
 	}()
 
-	if err := <-ready; err != nil {
+	select {
+	case err := <-ready:
+		if err != nil {
+			cancel()
+			return err
+		}
+	case <-dead:
 		cancel()
-		<-dead // 等待 Run 退出
-		return err
+		// 优先拿到具体错误（ready 与 dead 可能同时就绪）
+		select {
+		case err := <-ready:
+			if err != nil {
+				return err
+			}
+		default:
+		}
+		return errors.New("Telegram 连接意外退出，请重试")
+	case <-time.After(connectTimeout):
+		cancel()
+		return errors.New("连接 Telegram 超时，请检查网络或在「设置」中配置代理")
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	select {
+	case <-dead: // 就绪后立刻断开（如网络抖动）
+		return errors.New("Telegram 连接已断开，请重试")
+	default:
+	}
 	s.running = true
 	s.cancel = cancel
 	s.jobs = jobs
 	s.dead = dead
 	return nil
+}
+
+// runTelegramClient 真实客户端：建连 → 校验登录态 → 串行执行查询任务直到 ctx 取消。
+// 就绪前的任何错误都会写入 ready，保证调用方能拿到具体原因。
+func (s *ChatService) runTelegramClient(ctx context.Context, ready chan<- error, jobs <-chan chatJob) {
+	kvd, err := s.kv.Open(engine.Namespace)
+	if err != nil {
+		ready <- errors.Wrap(err, "open kv")
+		return
+	}
+
+	c, err := pkgtclient.New(ctx, pkgtclient.Options{
+		KV:               kvd,
+		Proxy:            s.cfg.Get().Proxy,
+		ReconnectTimeout: reconnectTimeout,
+	}, false)
+	if err != nil {
+		ready <- errors.Wrap(err, "create client")
+		return
+	}
+
+	err = c.Run(ctx, func(ctx context.Context) error {
+		st, err := c.Auth().Status(ctx)
+		if err != nil {
+			ready <- errors.Wrap(err, "查询登录状态失败")
+			return err
+		}
+		if !st.Authorized {
+			ready <- errNotLoggedIn
+			return errNotLoggedIn
+		}
+		ready <- nil
+
+		for {
+			select {
+			case j := <-jobs:
+				j.done <- j.fn(ctx, c.API())
+			case <-ctx.Done():
+				return nil
+			}
+		}
+	})
+	if err != nil {
+		// 就绪前建连失败（如直连被墙/代理不可用）：尽力把原因送给等待方
+		select {
+		case ready <- errors.Wrap(err, "连接 Telegram 失败"):
+		default:
+		}
+	}
 }
 
 // ---- 对话列表 ----

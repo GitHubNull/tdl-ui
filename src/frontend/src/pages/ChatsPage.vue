@@ -10,6 +10,11 @@
       <Button label="去登录" size="small" class="ml-8" @click="router.push('/login')" />
     </Message>
 
+    <Message v-else-if="chats.error" severity="error" class="mb-16">
+      <span>加载对话失败：{{ chats.error }}</span>
+      <Button label="重试" size="small" class="ml-8" :loading="chats.loading" @click="refresh" />
+    </Message>
+
     <div class="table-card panel-card">
       <!-- 工具栏：搜索 + 正则/大小写开关 + 刷新 -->
       <div class="table-toolbar">
@@ -91,8 +96,18 @@
         </Column>
         <template #empty>
           <div class="empty-state small">
-            <i class="pi pi-comments" />
-            <p>{{ chats.loaded ? '没有匹配的对话' : '暂无对话' }}</p>
+            <template v-if="chats.loading">
+              <i class="pi pi-spin pi-spinner" />
+              <p>正在加载对话…</p>
+            </template>
+            <template v-else-if="chats.error">
+              <i class="pi pi-exclamation-triangle" />
+              <p>加载失败，请查看上方错误信息后重试</p>
+            </template>
+            <template v-else>
+              <i class="pi pi-comments" />
+              <p>{{ chats.loaded ? '没有匹配的对话' : '暂无对话' }}</p>
+            </template>
           </div>
         </template>
       </DataTable>

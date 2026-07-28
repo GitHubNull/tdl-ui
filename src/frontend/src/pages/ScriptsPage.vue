@@ -1,5 +1,5 @@
 <template>
-  <div class="page page-wide">
+  <div class="page">
     <div class="page-header">
       <h1>脚本</h1>
       <p>用 Go 语法编写过滤 / 命名脚本与任务生命周期钩子（Yaegi 解释执行）</p>
@@ -165,10 +165,6 @@ async function testRun() {
 </script>
 
 <style scoped>
-.page-wide {
-  max-width: 1080px;
-}
-
 .scripts-layout {
   display: flex;
   gap: 16px;

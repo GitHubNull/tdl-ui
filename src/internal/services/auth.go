@@ -195,7 +195,8 @@ func (s *AuthService) ListDesktopAccounts(path, passcode string) ([]DesktopAccou
 	return out, nil
 }
 
-// ImportDesktopSession 导入指定账号的 Desktop 会话（对应 ref/tdl/app/login/desktop.go）。
+// ImportDesktopSession 导入指定账号的 Desktop 会话（对应 ref/tdl/app/login/desktop.go），
+// 并建连校验会话有效性；校验失败时回滚已写入的会话，避免出现假登录态。
 func (s *AuthService) ImportDesktopSession(path, passcode, userID string) error {
 	accounts, err := tdtdesktop.Read(appendTData(path), []byte(passcode))
 	if err != nil {
@@ -232,13 +233,59 @@ func (s *AuthService) ImportDesktopSession(path, passcode, userID string) error 
 		return errors.Wrap(err, "设置 app 失败")
 	}
 
-	uid, _ := strconv.ParseInt(userID, 10, 64)
-	s.saveUser(uid, "")
-	s.emitter.Emit(events.Login, events.LoginUpdate{
-		Stage: "success",
-		User:  &events.User{ID: uid},
-	})
+	// 建连校验：会话无效时回滚，不留下假登录态
+	user, err := s.verifySession(ctx, kvd)
+	if err != nil {
+		s.clearSession(ctx, kvd)
+		return err
+	}
+
+	s.loginSuccess(user)
 	return nil
+}
+
+// verifySession 建连校验当前会话是否已授权，并返回账号信息；带超时避免挂死。
+func (s *AuthService) verifySession(parent context.Context, kvd storage.Storage) (*tg.User, error) {
+	ctx, cancel := context.WithTimeout(parent, connectTimeout)
+	defer cancel()
+
+	c, err := pkgtclient.New(ctx, pkgtclient.Options{
+		KV:               kvd,
+		Proxy:            s.cfg.Get().Proxy,
+		ReconnectTimeout: reconnectTimeout,
+	}, false)
+	if err != nil {
+		return nil, errors.Wrap(err, "create client")
+	}
+
+	var user *tg.User
+	err = c.Run(ctx, func(ctx context.Context) error {
+		st, err := c.Auth().Status(ctx)
+		if err != nil {
+			return errors.Wrap(err, "查询登录状态失败")
+		}
+		if !st.Authorized {
+			return errors.New("导入的会话未授权或已失效，请确认 Desktop 端处于登录状态后重新导入")
+		}
+		user, err = c.Self(ctx)
+		if err != nil {
+			return errors.Wrap(err, "获取账号信息失败")
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, errors.New("连接 Telegram 超时，请检查网络或在「设置」中配置代理")
+		}
+		return nil, err
+	}
+	return user, nil
+}
+
+// clearSession 删除已写入的会话数据（校验失败回滚用）。
+func (s *AuthService) clearSession(ctx context.Context, kvd storage.Storage) {
+	_ = kvd.Delete(ctx, keygen.New("session"))
+	_ = kvd.Delete(ctx, key.App())
 }
 
 // ---- 内部实现 ----

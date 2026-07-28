@@ -6,6 +6,23 @@
     </div>
 
     <div class="panel-card">
+      <h2 class="section-title">账号</h2>
+      <div class="form-field">
+        <label>Telegram 账号</label>
+        <div class="form-row">
+          <span class="hint grow">{{ accountHint }}</span>
+          <Button
+            v-if="auth.loggedIn"
+            label="账号管理"
+            icon="pi pi-user"
+            severity="secondary"
+            outlined
+            @click="router.push('/login')"
+          />
+          <Button v-else label="前往登录" icon="pi pi-sign-in" @click="router.push('/login')" />
+        </div>
+      </div>
+
       <h2 class="section-title">网络</h2>
       <div class="form-field">
         <label for="proxy">代理地址</label>
@@ -67,7 +84,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import InputNumber from 'primevue/inputnumber'
@@ -76,11 +94,18 @@ import SelectButton from 'primevue/selectbutton'
 
 import { Download } from '../api'
 import type { ThemeMode } from '../theme'
+import { useAuthStore } from '../stores/auth'
 import { useSettingsStore } from '../stores/settings'
 
 const store = useSettingsStore()
+const auth = useAuthStore()
+const router = useRouter()
 const toast = useToast()
 const saving = ref(false)
+
+const accountHint = computed(() =>
+  auth.loggedIn ? `已登录：${auth.username || auth.userId}` : '尚未登录 Telegram 账号',
+)
 
 const themeOptions = [
   { label: '亮色', value: 'light' },

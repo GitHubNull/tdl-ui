@@ -1,7 +1,10 @@
 package services
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/gotd/td/tg"
 )
@@ -140,5 +143,102 @@ func TestNormalizeKinds(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("预期 %v，实际 %v", want, got)
 		}
+	}
+}
+
+// ---- ensureStarted 并发与错误路径回归测试 ----
+
+// awaitErr 在限定时间内等待 ensureStarted 返回，超时即视为卡死。
+func awaitErr(t *testing.T, fn func() error) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("调用未在限定时间内返回（回归：死锁/挂死）")
+		return nil
+	}
+}
+
+// 回归：ready 返回错误（如未登录）后 ensureStarted 必须返回错误而非与收尾协程互锁卡死。
+func TestEnsureStartedErrorNoDeadlock(t *testing.T) {
+	s := &ChatService{
+		runClient: func(_ context.Context, ready chan<- error, _ <-chan chatJob) {
+			ready <- errNotLoggedIn
+		},
+	}
+
+	for i := 0; i < 2; i++ { // 连续两次：验证失败后无残留状态阻塞重试
+		err := awaitErr(t, s.ensureStarted)
+		if !errors.Is(err, errNotLoggedIn) {
+			t.Fatalf("第 %d 次预期 errNotLoggedIn，实际 %v", i+1, err)
+		}
+	}
+}
+
+// 建连挂起（网络不通/未配代理）时应在 connectTimeout 内返回超时错误。
+func TestEnsureStartedConnectTimeout(t *testing.T) {
+	old := connectTimeout
+	connectTimeout = 200 * time.Millisecond
+	defer func() { connectTimeout = old }()
+
+	s := &ChatService{
+		runClient: func(ctx context.Context, _ chan<- error, _ <-chan chatJob) {
+			<-ctx.Done() // 模拟连接阶段永久阻塞，直到被取消
+		},
+	}
+
+	err := awaitErr(t, s.ensureStarted)
+	if err == nil {
+		t.Fatal("预期超时错误，实际成功")
+	}
+}
+
+// 就绪后 invoke 能正常执行任务，Stop 后状态复位可重新启动。
+func TestEnsureStartedInvokeAndStop(t *testing.T) {
+	s := &ChatService{
+		runClient: func(ctx context.Context, ready chan<- error, jobs <-chan chatJob) {
+			ready <- nil
+			for {
+				select {
+				case j := <-jobs:
+					j.done <- j.fn(ctx, nil)
+				case <-ctx.Done():
+					return
+				}
+			}
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	called := false
+	err := s.invoke(ctx, func(_ context.Context, _ *tg.Client) error {
+		called = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("invoke 失败: %v", err)
+	}
+	if !called {
+		t.Fatal("任务闭包未被执行")
+	}
+
+	s.Stop()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		s.mu.Lock()
+		running := s.running
+		s.mu.Unlock()
+		if !running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Stop 后 running 未复位")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
