@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
+import ConfirmationService from 'primevue/confirmationservice'
 import ToastService from 'primevue/toastservice'
 import Tooltip from 'primevue/tooltip'
 import { definePreset } from '@primeuix/themes'
@@ -45,6 +46,7 @@ app.use(PrimeVue, {
   },
 })
 app.use(ToastService)
+app.use(ConfirmationService)
 app.directive('tooltip', Tooltip)
 
 initTheme()

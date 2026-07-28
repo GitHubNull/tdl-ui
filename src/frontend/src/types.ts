@@ -68,7 +68,16 @@ export interface TaskView {
   total: number
   finished: number
   failed: number
+  fileCount: number
   createdAt: string
+}
+
+/** engine.TaskFile（任务内登记的文件） */
+export interface TaskFile {
+  name: string
+  path: string
+  size: number
+  state: 'downloading' | 'done' | 'failed'
 }
 
 /** engine.FileEvent（task:file 事件负载） */
@@ -132,6 +141,8 @@ export interface MediaItem {
   mime: string
   kind: 'video' | 'photo' | 'audio' | 'file'
   date: number // unix 秒
+  width?: number // 像素宽（可缺）
+  height?: number // 像素高（可缺）
   thumb?: string // 内嵌模糊占位图（data URI，可空）
 }
 
@@ -140,6 +151,7 @@ export interface MediaQuery {
   dialogId: number
   dialogType: string
   offsetId: number
+  offsetDate: number // unix 秒；>0 且 offsetId=0 时从该日期附近开始（月份跳转）
   limit: number
   query: string
   kinds: string[]

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -68,6 +70,7 @@ type TaskView struct {
 	Total      int      `json:"total"`
 	Finished   int      `json:"finished"`
 	Failed     int      `json:"failed"`
+	FileCount  int      `json:"fileCount"`
 	CreatedAt  string   `json:"createdAt"`
 }
 
@@ -88,6 +91,8 @@ type Task struct {
 	failed   int
 	paused   bool // 取消是否由“暂停”触发
 	cancel   context.CancelFunc
+	files    []TaskFile    // 任务内文件记录（含 .tmp 未完成文件）
+	runDone  chan struct{} // 本次 run 结束时关闭，供删除文件前等待任务真正停止
 }
 
 // Deps 任务管理器依赖。
@@ -100,18 +105,73 @@ type Deps struct {
 
 // Manager 任务管理器：维护任务列表并驱动执行。
 type Manager struct {
-	deps Deps
+	deps      Deps
+	statePath string // 任务记录持久化文件（tasks.json）
 
 	mu    sync.Mutex
 	tasks map[string]*Task
 	order []string // 创建顺序
 }
 
-// NewManager 创建任务管理器。
+// NewManager 创建任务管理器，并从磁盘恢复历史任务记录。
 func NewManager(deps Deps) *Manager {
-	return &Manager{
+	m := &Manager{
 		deps:  deps,
 		tasks: make(map[string]*Task),
+	}
+	if deps.Cfg != nil { // 单测可能不提供配置，此时不启用持久化
+		m.statePath = filepath.Join(deps.Cfg.DataDir(), "tasks.json")
+	}
+	m.restore()
+	return m
+}
+
+// restore 加载持久化记录；上次退出时仍在运行/排队的任务恢复为已暂停（可断点续传）。
+func (m *Manager) restore() {
+	if m.statePath == "" {
+		return
+	}
+	recs, err := loadRecords(m.statePath)
+	if err != nil {
+		log.Printf("加载任务记录失败: %v", err)
+		return
+	}
+	for _, r := range recs {
+		status := r.Status
+		if status == StatusRunning || status == StatusQueued {
+			status = StatusPaused
+		}
+		t := &Task{
+			ID:        r.ID,
+			CreatedAt: r.CreatedAt,
+			opts:      r.Opts,
+			mgr:       m,
+			status:    status,
+			errMsg:    r.Error,
+			total:     r.Total,
+			finished:  r.Finished,
+			failed:    r.Failed,
+			files:     r.Files,
+		}
+		m.tasks[t.ID] = t
+		m.order = append(m.order, t.ID)
+	}
+}
+
+// persist 把全部任务快照写盘（m.mu → t.mu 的锁序，调用方不得持有任一锁）。
+func (m *Manager) persist() {
+	if m.statePath == "" {
+		return
+	}
+	m.mu.Lock()
+	recs := make([]taskRecord, 0, len(m.order))
+	for _, id := range m.order {
+		recs = append(recs, m.tasks[id].record())
+	}
+	m.mu.Unlock()
+
+	if err := saveRecords(m.statePath, recs); err != nil {
+		log.Printf("保存任务记录失败: %v", err)
 	}
 }
 
@@ -213,6 +273,15 @@ func (m *Manager) Resume(id string) error {
 		t.mu.Unlock()
 		return errors.New("仅暂停/失败/已取消的任务可恢复")
 	}
+	// 重启后恢复的任务未携带脚本契约，按需补加载
+	if t.contracts == nil && t.opts.ScriptName != "" {
+		c, err := m.deps.Scripts.LoadByName(t.opts.ScriptName)
+		if err != nil {
+			t.mu.Unlock()
+			return errors.Wrapf(err, "加载脚本 %q 失败", t.opts.ScriptName)
+		}
+		t.contracts = c
+	}
 	t.status = StatusQueued
 	t.errMsg = ""
 	t.failed = 0
@@ -257,7 +326,6 @@ func (m *Manager) Remove(id string) error {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	delete(m.tasks, id)
 	for i, oid := range m.order {
 		if oid == id {
@@ -265,7 +333,173 @@ func (m *Manager) Remove(id string) error {
 			break
 		}
 	}
+	m.mu.Unlock()
+	m.persist()
 	return nil
+}
+
+// Files 返回任务的文件记录副本。
+func (m *Manager) Files(id string) ([]TaskFile, error) {
+	t, err := m.get(id)
+	if err != nil {
+		return nil, err
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]TaskFile(nil), t.files...), nil
+}
+
+// TaskDir 返回任务的保存目录。
+func (m *Manager) TaskDir(id string) (string, error) {
+	t, err := m.get(id)
+	if err != nil {
+		return "", err
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.opts.Dir, nil
+}
+
+// ClearFinished 移除全部已完成状态的任务记录（不动磁盘文件）。
+func (m *Manager) ClearFinished() {
+	m.mu.Lock()
+	kept := m.order[:0]
+	for _, id := range m.order {
+		t := m.tasks[id]
+		t.mu.Lock()
+		done := t.status == StatusDone
+		t.mu.Unlock()
+		if done {
+			delete(m.tasks, id)
+		} else {
+			kept = append(kept, id)
+		}
+	}
+	m.order = kept
+	m.mu.Unlock()
+	m.persist()
+}
+
+// DeleteFiles 删除任务内指定文件（paths 必须严格匹配记录内登记的路径，
+// 防止删除任意路径）；文件全部删光后整条任务记录一并移除。
+func (m *Manager) DeleteFiles(id string, paths []string) error {
+	t, err := m.get(id)
+	if err != nil {
+		return err
+	}
+
+	t.mu.Lock()
+	if t.status == StatusRunning || t.status == StatusQueued {
+		t.mu.Unlock()
+		return errors.New("请先暂停或取消运行中的任务")
+	}
+	registered := make(map[string]struct{}, len(t.files))
+	for _, f := range t.files {
+		registered[f.Path] = struct{}{}
+	}
+	for _, p := range paths {
+		if _, ok := registered[p]; !ok {
+			t.mu.Unlock()
+			return errors.Errorf("文件不属于该任务: %s", p)
+		}
+	}
+
+	toDelete := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		toDelete[p] = struct{}{}
+	}
+	var firstErr error
+	kept := t.files[:0]
+	for _, f := range t.files {
+		if _, ok := toDelete[f.Path]; !ok {
+			kept = append(kept, f)
+			continue
+		}
+		if err := os.Remove(f.Path); err != nil && !os.IsNotExist(err) {
+			if firstErr == nil {
+				firstErr = errors.Wrapf(err, "删除 %s 失败", f.Name)
+			}
+			kept = append(kept, f) // 删除失败的文件保留记录
+			continue
+		}
+	}
+	t.files = kept
+	empty := len(t.files) == 0
+	t.mu.Unlock()
+
+	if empty {
+		m.mu.Lock()
+		delete(m.tasks, id)
+		for i, oid := range m.order {
+			if oid == id {
+				m.order = append(m.order[:i], m.order[i+1:]...)
+				break
+			}
+		}
+		m.mu.Unlock()
+	}
+	m.persist()
+	return firstErr
+}
+
+// stopWait 取消运行中的任务并等待其真正退出（Windows 下句柄占用会导致删除失败）。
+func (t *Task) stopWait(timeout time.Duration) {
+	t.mu.Lock()
+	if t.cancel != nil {
+		t.paused = false
+		t.cancel()
+	}
+	ch := t.runDone
+	t.mu.Unlock()
+
+	if ch == nil {
+		return
+	}
+	select {
+	case <-ch:
+	case <-time.After(timeout):
+	}
+}
+
+// DeleteAllFiles 停止全部任务，删除所有登记文件（含 .tmp 未完成文件），并清空全部记录。
+func (m *Manager) DeleteAllFiles() error {
+	m.mu.Lock()
+	snapshot := make([]*Task, 0, len(m.order))
+	for _, id := range m.order {
+		snapshot = append(snapshot, m.tasks[id])
+	}
+	// 先清空登记，迟到的 run() 会因任务不存在而直接退出
+	m.tasks = make(map[string]*Task)
+	m.order = nil
+	m.mu.Unlock()
+
+	for _, t := range snapshot {
+		t.stopWait(10 * time.Second)
+	}
+
+	var firstErr error
+	for _, t := range snapshot {
+		t.mu.Lock()
+		files := append([]TaskFile(nil), t.files...)
+		t.files = nil
+		t.mu.Unlock()
+		for _, f := range files {
+			if err := os.Remove(f.Path); err != nil && !os.IsNotExist(err) && firstErr == nil {
+				firstErr = errors.Wrapf(err, "删除 %s 失败", f.Name)
+			}
+		}
+	}
+
+	m.persist()
+	return firstErr
+}
+
+// exists 任务是否仍在管理器中（删除全部文件时用于阻断迟到的 run）。
+func (m *Manager) exists(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.tasks[id]
+	return ok
 }
 
 func (m *Manager) get(id string) (*Task, error) {
@@ -280,10 +514,16 @@ func (m *Manager) get(id string) (*Task, error) {
 
 // run 驱动任务执行并根据结果迁移状态。
 func (m *Manager) run(t *Task) {
+	if !m.exists(t.ID) { // 记录已被删除（如删除全部文件），不再执行
+		return
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
 
 	t.mu.Lock()
 	t.cancel = cancel
+	t.runDone = runDone
 	t.status = StatusRunning
 	t.mu.Unlock()
 	t.emitUpdate()
@@ -295,6 +535,7 @@ func (m *Manager) run(t *Task) {
 
 	t.mu.Lock()
 	t.cancel = nil
+	t.runDone = nil
 	switch {
 	case err == nil:
 		t.status = StatusDone
@@ -309,6 +550,7 @@ func (m *Manager) run(t *Task) {
 		t.errMsg = err.Error()
 	}
 	t.mu.Unlock()
+	close(runDone)
 
 	t.emitUpdate()
 	_ = t.contracts.SafeOnTaskDone(t.info())
@@ -457,7 +699,25 @@ func (t *Task) view() TaskView {
 		Total:      t.total,
 		Finished:   t.finished,
 		Failed:     t.failed,
+		FileCount:  len(t.files),
 		CreatedAt:  t.CreatedAt,
+	}
+}
+
+// record 任务的持久化快照。
+func (t *Task) record() taskRecord {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return taskRecord{
+		ID:        t.ID,
+		CreatedAt: t.CreatedAt,
+		Opts:      t.opts,
+		Status:    t.status,
+		Error:     t.errMsg,
+		Total:     t.total,
+		Finished:  t.finished,
+		Failed:    t.failed,
+		Files:     append([]TaskFile(nil), t.files...),
 	}
 }
 
@@ -474,11 +734,86 @@ func (t *Task) info() scriptapi.TaskInfo {
 }
 
 func (t *Task) emitUpdate() {
+	t.mgr.persist()
 	t.mgr.deps.Emitter.Emit(events.Task, t.view())
 }
 
 func (t *Task) emitFile(ev FileEvent) {
 	t.mgr.deps.Emitter.Emit(events.TaskFile, ev)
+}
+
+// ---- 文件记录维护（由 progress 回调） ----
+
+// addFile 登记文件（同路径覆盖，断点重跑时天然去重）。
+func (t *Task) addFile(f TaskFile) {
+	t.mu.Lock()
+	replaced := false
+	for i := range t.files {
+		if t.files[i].Path == f.Path {
+			t.files[i] = f
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		t.files = append(t.files, f)
+	}
+	t.mu.Unlock()
+	t.mgr.persist()
+}
+
+// finishFile 把 oldPath（.tmp）条目替换为最终文件记录；
+// 若最终路径已存在旧条目（历史运行留下）先移除，避免重复。
+func (t *Task) finishFile(oldPath string, f TaskFile) {
+	t.mu.Lock()
+	kept := t.files[:0]
+	for _, x := range t.files {
+		if x.Path == f.Path && x.Path != oldPath {
+			continue
+		}
+		kept = append(kept, x)
+	}
+	t.files = kept
+	replaced := false
+	for i := range t.files {
+		if t.files[i].Path == oldPath {
+			t.files[i] = f
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		t.files = append(t.files, f)
+	}
+	t.mu.Unlock()
+	t.mgr.persist()
+}
+
+// markFileFailed 标记文件失败。
+func (t *Task) markFileFailed(path string) {
+	t.mu.Lock()
+	for i := range t.files {
+		if t.files[i].Path == path {
+			t.files[i].State = "failed"
+			break
+		}
+	}
+	t.mu.Unlock()
+	t.mgr.persist()
+}
+
+// dropFile 移除文件条目（临时文件已被清理）。
+func (t *Task) dropFile(path string) {
+	t.mu.Lock()
+	kept := t.files[:0]
+	for _, x := range t.files {
+		if x.Path != path {
+			kept = append(kept, x)
+		}
+	}
+	t.files = kept
+	t.mu.Unlock()
+	t.mgr.persist()
 }
 
 // onFileDone 由 progress 回调：更新计数并触发脚本钩子。

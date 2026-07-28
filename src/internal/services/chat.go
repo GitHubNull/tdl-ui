@@ -53,6 +53,7 @@ type MediaQuery struct {
 	DialogID   int64    `json:"dialogId"`
 	DialogType string   `json:"dialogType"`
 	OffsetID   int      `json:"offsetId"`
+	OffsetDate int64    `json:"offsetDate"` // unix 秒；>0 且 OffsetID=0 时从该日期附近开始（月份跳转）
 	Limit      int      `json:"limit"`
 	Query      string   `json:"query"`   // 文件名/caption 包含，不区分大小写
 	Kinds      []string `json:"kinds"`   // video/photo/audio/file，空=全部
@@ -71,6 +72,8 @@ type MediaItem struct {
 	MIME      string `json:"mime"`
 	Kind      string `json:"kind"` // video/photo/audio/file
 	Date      int64  `json:"date"` // unix 秒
+	Width     int    `json:"width,omitempty"`  // 像素宽（短缺时为 0）
+	Height    int    `json:"height,omitempty"` // 像素高（短缺时为 0）
 	Thumb     string `json:"thumb,omitempty"` // 内嵌模糊占位图（data URI，可空）
 }
 
@@ -105,9 +108,8 @@ type ChatService struct {
 	jobs     chan chatJob
 	dead     chan struct{}
 
-	// 清晰缩略图内存缓存（key: dialogID/messageID → data URI）
-	thumbMu    sync.Mutex
-	thumbCache map[string]string
+	// 缩略图/预览图磁盘缓存（软件运行目录 cache/ 下）
+	thumbs *thumbCache
 
 	// runClient 建连并驱动任务循环，可注入以便测试；为 nil 时使用真实 Telegram 客户端。
 	runClient func(ctx context.Context, ready chan<- error, jobs <-chan chatJob)
@@ -115,7 +117,7 @@ type ChatService struct {
 
 // NewChatService 创建对话服务。
 func NewChatService(cfg *config.Manager, kvs kv.Storage) *ChatService {
-	return &ChatService{cfg: cfg, kv: kvs, thumbCache: make(map[string]string)}
+	return &ChatService{cfg: cfg, kv: kvs, thumbs: newThumbCache()}
 }
 
 // Stop 关闭常驻连接（登出后会话失效时调用），下次查询自动重建。
@@ -621,6 +623,15 @@ func scanMedia(ctx context.Context, api *tg.Client, inputPeer tg.InputPeerClass,
 	q.Exts = normalizeExts(q.Exts)
 	q.Kinds = normalizeKinds(q.Kinds)
 
+	// 月份跳转：先把日期游标解析为消息 ID 游标，再走统一分页管线
+	if q.OffsetDate > 0 && q.OffsetID == 0 {
+		id, err := resolveOffsetDate(ctx, api, inputPeer, q.OffsetDate)
+		if err != nil {
+			return nil, err
+		}
+		q.OffsetID = id
+	}
+
 	it := newMediaIterator(api, inputPeer, q)
 
 	page := &MediaPage{Items: make([]MediaItem, 0, q.Limit)}
@@ -651,6 +662,28 @@ func scanMedia(ctx context.Context, api *tg.Client, inputPeer tg.InputPeerClass,
 		page.NextOffset = lastID
 	}
 	return page, nil
+}
+
+// resolveOffsetDate 把日期游标解析为消息 ID 游标（含该日期附近的消息）：
+// GetHistory{OffsetDate, Limit:1} 返回日期不晚于 OffsetDate 的最新一条，+1 使其被分页包含。
+func resolveOffsetDate(ctx context.Context, api *tg.Client, inputPeer tg.InputPeerClass, date int64) (int, error) {
+	res, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
+		Peer:       inputPeer,
+		OffsetDate: int(date),
+		Limit:      1,
+	})
+	if err != nil {
+		return 0, errors.Wrap(err, "解析日期游标失败")
+	}
+	msgs, ok := res.AsModified()
+	if !ok {
+		return 1, nil
+	}
+	list := msgs.GetMessages()
+	if len(list) == 0 {
+		return 1, nil // 该日期之前无消息：OffsetID=1 使分页结果为空
+	}
+	return list[0].GetID() + 1, nil
 }
 
 // newMediaIterator 按类型条件选择消息源：
@@ -715,6 +748,7 @@ func toMediaItem(dialogID int64, m *tg.Message) (MediaItem, bool) {
 		}
 		if p, ok := md.Photo.(*tg.Photo); ok {
 			out.Thumb = strippedThumbURI(p.Sizes)
+			out.Width, out.Height = photoDims(p.Sizes)
 		}
 		return out, true
 	case *tg.MessageMediaDocument:
@@ -722,6 +756,7 @@ func toMediaItem(dialogID int64, m *tg.Message) (MediaItem, bool) {
 		if !ok {
 			return MediaItem{}, false
 		}
+		w, h := docDims(doc)
 		return MediaItem{
 			DialogID:  dialogID,
 			MessageID: m.ID,
@@ -731,10 +766,43 @@ func toMediaItem(dialogID int64, m *tg.Message) (MediaItem, bool) {
 			MIME:      doc.MimeType,
 			Kind:      kindOfDocument(doc),
 			Date:      int64(m.Date),
+			Width:     w,
+			Height:    h,
 			Thumb:     strippedThumbURI(doc.Thumbs),
 		}, true
 	}
 	return MediaItem{}, false
+}
+
+// photoDims 取照片最大真实尺寸的像素宽高。
+func photoDims(sizes []tg.PhotoSizeClass) (w, h int) {
+	best := 0
+	for _, sc := range sizes {
+		var cw, ch int
+		switch v := sc.(type) {
+		case *tg.PhotoSize:
+			cw, ch = v.W, v.H
+		case *tg.PhotoSizeProgressive:
+			cw, ch = v.W, v.H
+		}
+		if a := cw * ch; a > best {
+			best, w, h = a, cw, ch
+		}
+	}
+	return w, h
+}
+
+// docDims 从文档属性提取像素宽高（视频 / 图片文档）。
+func docDims(doc *tg.Document) (w, h int) {
+	for _, a := range doc.Attributes {
+		switch v := a.(type) {
+		case *tg.DocumentAttributeVideo:
+			return v.W, v.H
+		case *tg.DocumentAttributeImageSize:
+			return v.W, v.H
+		}
+	}
+	return 0, 0
 }
 
 // kindOfDocument 按 MIME 与文档属性判定媒体类型。

@@ -163,81 +163,136 @@
             <InputNumber v-model="maxMB" placeholder="最大 MB" :min="0" class="w-100" @keyup.enter="applyFilters" />
             <Button label="查询" icon="pi pi-filter" size="small" @click="applyFilters" />
             <Button label="重置" icon="pi pi-filter-slash" size="small" severity="secondary" outlined @click="resetFilters" />
+            <span class="spacer-flex" />
+            <SelectButton
+              v-model="layout"
+              :options="layoutOptions"
+              option-value="value"
+              :allow-empty="false"
+              size="small"
+            >
+              <template #option="{ option }">
+                <i :class="option.icon" v-tooltip.top="option.label" />
+              </template>
+            </SelectButton>
+            <DatePicker
+              v-if="layout === 'timeline'"
+              v-model="jumpMonth"
+              view="month"
+              date-format="yy-mm"
+              placeholder="跳转月份"
+              show-icon
+              class="w-140"
+            />
           </div>
 
-          <div class="media-scroll">
-            <div class="media-grid">
-              <div
-                v-for="item in items"
-                :key="item.messageId"
-                :ref="(el) => registerCard(el as HTMLElement | null, item)"
-                class="media-card"
-                :class="{ selected: selectedMsgs.has(item.messageId) }"
-                @click="toggleSelect(item)"
+          <div class="media-body">
+            <div ref="scrollEl" class="media-scroll">
+              <section
+                v-for="g in displayGroups"
+                :key="g.key"
+                class="month-section"
+                :ref="(el) => registerMonth(g.key, el)"
               >
-                <div class="thumb">
-                  <img
-                    v-if="thumbOf(item)"
-                    :src="thumbOf(item)"
-                    :class="{ blurred: isBlurred(item) }"
-                    alt=""
-                    draggable="false"
-                  />
-                  <i v-else :class="kindIcon(item.kind)" class="thumb-icon" />
-                  <i v-if="item.kind === 'video' && thumbOf(item)" class="pi pi-play-circle play-badge" />
+                <h3 v-if="layout === 'timeline'" class="month-title">{{ g.label }}</h3>
+                <div class="media-grid" :class="{ waterfall: layout !== 'grid' }">
+                  <div
+                    v-for="item in g.items"
+                    :key="item.messageId"
+                    class="media-card"
+                    :class="{ selected: selectedMsgs.has(item.messageId) }"
+                    :style="cardStyle(item)"
+                    @click="toggleSelect(item)"
+                  >
+                    <div class="thumb" @click.stop="openPreview(item)">
+                      <img
+                        v-if="hasThumb(item)"
+                        :src="thumbURL(item.dialogId, selectedType, item.messageId)"
+                        :style="item.thumb ? { backgroundImage: `url(${item.thumb})` } : undefined"
+                        loading="lazy"
+                        alt=""
+                        draggable="false"
+                        @error="thumbFailed.add(itemKey(item))"
+                      />
+                      <i v-else :class="kindIcon(item.kind)" class="thumb-icon" />
+                      <i v-if="item.kind === 'video' && hasThumb(item)" class="pi pi-play-circle play-badge" />
 
-                  <Checkbox
-                    class="card-check"
-                    :model-value="selectedMsgs.has(item.messageId)"
-                    binary
-                    @click.stop
-                    @update:model-value="() => toggleSelect(item)"
-                  />
-                  <Button
-                    class="card-dl"
-                    icon="pi pi-download"
-                    size="small"
-                    rounded
-                    v-tooltip.top="'下载此文件'"
-                    @click.stop="downloadOne(item)"
-                  />
+                      <Checkbox
+                        class="card-check"
+                        :model-value="selectedMsgs.has(item.messageId)"
+                        binary
+                        @click.stop
+                        @update:model-value="() => toggleSelect(item)"
+                      />
+                      <Button
+                        class="card-dl"
+                        icon="pi pi-download"
+                        size="small"
+                        rounded
+                        v-tooltip.top="'下载此文件'"
+                        @click.stop="downloadOne(item)"
+                      />
 
-                  <span v-if="fileStateOf(item)" class="dl-state" :class="fileStateOf(item)!.state">
-                    <i v-if="fileStateOf(item)!.state === 'downloading'" class="pi pi-spin pi-spinner" />
-                    <i v-else-if="fileStateOf(item)!.state === 'done'" class="pi pi-check" />
-                    <i v-else class="pi pi-times" />
-                    <template v-if="fileStateOf(item)!.state === 'downloading'">{{ fileStateOf(item)!.pct }}%</template>
-                  </span>
+                      <span v-if="fileStateOf(item)" class="dl-state" :class="fileStateOf(item)!.state">
+                        <i v-if="fileStateOf(item)!.state === 'downloading'" class="pi pi-spin pi-spinner" />
+                        <i v-else-if="fileStateOf(item)!.state === 'done'" class="pi pi-check" />
+                        <i v-else class="pi pi-times" />
+                        <template v-if="fileStateOf(item)!.state === 'downloading'">{{ fileStateOf(item)!.pct }}%</template>
+                      </span>
+                    </div>
+                    <div class="card-info">
+                      <span class="card-name" :title="item.name">{{ item.name }}</span>
+                      <span class="card-meta">{{ fmtSize(item.size) }} · {{ extOf(item.name) }} · {{ fmtDate(item.date) }}</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="card-info">
-                  <span class="card-name" :title="item.name">{{ item.name }}</span>
-                  <span class="card-meta">{{ fmtSize(item.size) }} · {{ extOf(item.name) }} · {{ fmtDate(item.date) }}</span>
-                </div>
+              </section>
+
+              <div v-if="!items.length && !loading" class="empty-state small">
+                <i class="pi pi-images" />
+                <p>没有匹配的媒体文件</p>
+              </div>
+
+              <div ref="sentinel" class="scroll-sentinel" />
+
+              <div class="table-status">
+                <span>已加载 {{ items.length }} 条</span>
+                <span v-if="loading" class="status-loading"><i class="pi pi-spin pi-spinner" /> 加载中…</span>
+                <span v-else-if="failed" class="status-error">
+                  上次加载失败
+                  <Button label="重试" size="small" text @click="loadMore" />
+                </span>
+                <span v-else-if="!hasMore && items.length">没有更多了</span>
               </div>
             </div>
 
-            <div v-if="!items.length && !loading" class="empty-state small">
-              <i class="pi pi-images" />
-              <p>没有匹配的媒体文件</p>
-            </div>
-
-            <div ref="sentinel" class="scroll-sentinel" />
-
-            <div class="table-status">
-              <span>已加载 {{ items.length }} 条</span>
-              <span v-if="loading" class="status-loading"><i class="pi pi-spin pi-spinner" /> 加载中…</span>
-              <span v-else-if="failed" class="status-error">
-                上次加载失败
-                <Button label="重试" size="small" text @click="loadMore" />
-              </span>
-              <span v-else-if="!hasMore && items.length">没有更多了</span>
-            </div>
+            <!-- 月份索引条（已加载月份锚点） -->
+            <nav v-if="layout === 'timeline' && monthGroups.length" class="month-rail">
+              <button
+                v-for="g in monthGroups"
+                :key="g.key"
+                class="month-rail-item"
+                :title="g.label"
+                @click="scrollToMonth(g.key)"
+              >
+                {{ g.key }}
+              </button>
+            </nav>
           </div>
         </template>
       </section>
     </div>
 
     <NewTaskDialog v-model:visible="dlVisible" :selection="dlSelection" @created="onTaskCreated" />
+    <MediaPreview
+      v-model:visible="previewVisible"
+      v-model:index="previewIndex"
+      :items="items"
+      :dialog-type="selectedType"
+      :has-more="hasMore"
+      @download="downloadOne"
+      @load-more="loadMore"
+    />
   </div>
 </template>
 
@@ -248,6 +303,7 @@ import { useToast } from 'primevue/usetoast'
 import Badge from 'primevue/badge'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
+import DatePicker from 'primevue/datepicker'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
@@ -256,8 +312,9 @@ import SelectButton from 'primevue/selectbutton'
 import Tag from 'primevue/tag'
 import VirtualScroller from 'primevue/virtualscroller'
 
+import MediaPreview from '../components/MediaPreview.vue'
 import NewTaskDialog from '../components/NewTaskDialog.vue'
-import { Chat, EVENT_TASK_FILE, on } from '../api'
+import { Chat, EVENT_TASK_FILE, on, thumbURL } from '../api'
 import type { DialogView, FileEvent, MediaItem, MediaQuery } from '../types'
 import { useAuthStore } from '../stores/auth'
 import { useChatsStore } from '../stores/chats'
@@ -393,6 +450,7 @@ function resetMedia() {
   offset.value = 0
   hasMore.value = true
   failed.value = false
+  jumpOffsetDate.value = 0
 }
 
 async function loadMore() {
@@ -429,6 +487,7 @@ function buildQuery(): MediaQuery {
     dialogId: selectedId.value!,
     dialogType: selectedType.value,
     offsetId: offset.value,
+    offsetDate: jumpOffsetDate.value,
     limit: PAGE_SIZE,
     query: applied.value.query,
     kinds: applied.value.kinds,
@@ -481,65 +540,129 @@ watch(sentinel, (el, old) => {
   if (el && sentinelObserver) sentinelObserver.observe(el)
 })
 
-// ---- 清晰缩略图懒加载（可视卡片，最多 3 并发） ----
+// ---- 布局切换与月份分组 ----
 
-const MAX_THUMB_CONCURRENCY = 3
-const clearThumbs = reactive(new Map<string, string>())
-const thumbQueued = new Set<string>()
-const thumbQueue: MediaItem[] = []
-let activeThumbs = 0
-let cardObserver: IntersectionObserver | null = null
-const cardItems = new WeakMap<Element, MediaItem>()
-const observedCards = new Map<number, Element>()
+type MediaLayout = 'waterfall' | 'grid' | 'timeline'
+
+const storedLayout = localStorage.getItem('chats.mediaLayout')
+const layout = ref<MediaLayout>(storedLayout === 'waterfall' || storedLayout === 'timeline' ? storedLayout : 'grid')
+watch(layout, (v) => localStorage.setItem('chats.mediaLayout', v))
+
+const layoutOptions = [
+  { label: '瀑布流', value: 'waterfall', icon: 'pi pi-th-large' },
+  { label: '网格', value: 'grid', icon: 'pi pi-table' },
+  { label: '时间流', value: 'timeline', icon: 'pi pi-calendar' },
+]
+
+// 月份跳转：以目标月的下月 1 日 0 点为 OffsetDate，后端解析为消息 ID 后走既有分页
+const jumpMonth = ref<Date | null>(null)
+const jumpOffsetDate = ref(0)
+
+watch(jumpMonth, (d) => {
+  if (!d) return
+  resetMedia()
+  jumpOffsetDate.value = Math.floor(new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime() / 1000)
+  loadMore()
+})
+
+interface MonthGroup {
+  key: string
+  label: string
+  items: MediaItem[]
+}
+
+// 按月份分组（Map 合并，防止跨页乱序产生重复 key）
+const monthGroups = computed<MonthGroup[]>(() => {
+  const map = new Map<string, MonthGroup>()
+  const out: MonthGroup[] = []
+  for (const it of items.value) {
+    const d = new Date(it.date * 1000)
+    const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
+    let g = map.get(key)
+    if (!g) {
+      g = { key, label: `${d.getFullYear()} 年 ${d.getMonth() + 1} 月`, items: [] }
+      map.set(key, g)
+      out.push(g)
+    }
+    g.items.push(it)
+  }
+  return out
+})
+
+const displayGroups = computed<MonthGroup[]>(() =>
+  layout.value === 'timeline' ? monthGroups.value : [{ key: 'all', label: '', items: items.value }],
+)
+
+const monthEls = new Map<string, HTMLElement>()
+
+function registerMonth(key: string, el: unknown) {
+  if (el) monthEls.set(key, el as HTMLElement)
+  else monthEls.delete(key)
+}
+
+function scrollToMonth(key: string) {
+  monthEls.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+// ---- 瀑布流：按纵横比计算 grid 跨行 ----
+
+const scrollEl = ref<HTMLElement | null>(null)
+const gridWidth = ref(0)
+let scrollRO: ResizeObserver | null = null
+
+watch(scrollEl, (el) => {
+  scrollRO?.disconnect()
+  scrollRO = null
+  if (el) {
+    scrollRO = new ResizeObserver(() => {
+      gridWidth.value = el.clientWidth - 32
+    })
+    scrollRO.observe(el)
+    gridWidth.value = el.clientWidth - 32
+  }
+})
+
+// 与 .media-grid 的 minmax(150px, 1fr) + 12px gap 对应的实际列宽
+const colWidth = computed(() => {
+  const w = gridWidth.value
+  if (w <= 0) return 150
+  const n = Math.max(1, Math.floor((w + 12) / 162))
+  return (w - (n - 1) * 12) / n
+})
+
+function cardStyle(it: MediaItem) {
+  if (layout.value === 'grid') return undefined
+  const w = it.width ?? 0
+  const h = it.height ?? 0
+  const ratio = w > 0 && h > 0 ? Math.min(2.2, Math.max(0.5, h / w)) : 1
+  // 行步长 = auto-rows 8px + gap 12px；52px 为卡片信息区高度
+  const span = Math.ceil((colWidth.value * ratio + 52 + 12) / 20)
+  return { gridRowEnd: `span ${span}` }
+}
+
+// ---- HTTP 缩略图（磁盘缓存 + 浏览器缓存接管并发） ----
+
+const thumbFailed = reactive(new Set<string>())
 
 function itemKey(it: MediaItem) {
   return `${it.dialogId}:${it.messageId}`
 }
 
-function registerCard(el: HTMLElement | null, item: MediaItem) {
-  const prev = observedCards.get(item.messageId)
-  if (prev && prev !== el) {
-    cardObserver?.unobserve(prev)
-    observedCards.delete(item.messageId)
-  }
-  if (el) {
-    cardItems.set(el, item)
-    observedCards.set(item.messageId, el)
-    cardObserver?.observe(el)
-  }
+function hasThumb(it: MediaItem) {
+  if (thumbFailed.has(itemKey(it))) return false
+  return it.kind === 'photo' || it.kind === 'video' || !!it.thumb
 }
 
-function enqueueThumb(it: MediaItem) {
-  const k = itemKey(it)
-  if (clearThumbs.has(k) || thumbQueued.has(k)) return
-  // 仅图片/视频（或后端已给出占位图的文档）才有清晰缩略图可拉
-  if (it.kind !== 'photo' && it.kind !== 'video' && !it.thumb) return
-  thumbQueued.add(k)
-  thumbQueue.push(it)
-  pumpThumbs()
-}
+// ---- Lightbox 预览 ----
 
-function pumpThumbs() {
-  while (activeThumbs < MAX_THUMB_CONCURRENCY && thumbQueue.length) {
-    const it = thumbQueue.shift()!
-    const k = itemKey(it)
-    activeThumbs++
-    Chat.getThumbnail(it.dialogId, selectedType.value, it.messageId)
-      .then((uri) => clearThumbs.set(k, uri)) // 空串也缓存，避免反复请求无缩略图的文件
-      .catch(() => thumbQueued.delete(k)) // 失败允许下次进入视口重试
-      .finally(() => {
-        activeThumbs--
-        pumpThumbs()
-      })
-  }
-}
+const previewVisible = ref(false)
+const previewIndex = ref(0)
 
-function thumbOf(it: MediaItem): string {
-  return clearThumbs.get(itemKey(it)) || it.thumb || ''
-}
-
-function isBlurred(it: MediaItem): boolean {
-  return !clearThumbs.get(itemKey(it))
+function openPreview(it: MediaItem) {
+  const i = items.value.findIndex((x) => x.messageId === it.messageId)
+  if (i < 0) return
+  previewIndex.value = i
+  previewVisible.value = true
 }
 
 // ---- 多选与下载 ----
@@ -699,20 +822,9 @@ onMounted(async () => {
       sentinelVisible = entries[0]?.isIntersecting ?? false
       if (sentinelVisible) loadMore()
     },
-    { rootMargin: '200px' },
+    { rootMargin: '600px' },
   )
   if (sentinel.value) sentinelObserver.observe(sentinel.value)
-
-  cardObserver = new IntersectionObserver(
-    (entries) => {
-      for (const e of entries) {
-        if (!e.isIntersecting) continue
-        const it = cardItems.get(e.target)
-        if (it) enqueueThumb(it)
-      }
-    },
-    { rootMargin: '200px' },
-  )
 
   offTaskFile = on<FileEvent>(EVENT_TASK_FILE, (ev) => {
     if (!ev.dialogId || !ev.messageId) return
@@ -729,7 +841,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   sentinelObserver?.disconnect()
-  cardObserver?.disconnect()
+  scrollRO?.disconnect()
   offTaskFile?.()
 })
 
@@ -977,6 +1089,17 @@ watch(
   color: var(--p-text-muted-color);
 }
 
+.spacer-flex {
+  flex: 1;
+}
+
+.media-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
 .media-scroll {
   flex: 1;
   min-height: 0;
@@ -990,6 +1113,74 @@ watch(
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 12px;
   padding: 16px;
+}
+
+/* 瀑布流：小行步 + 按纵横比跨行，DOM 顺序保持时间倒序 */
+.media-grid.waterfall {
+  grid-auto-rows: 8px;
+}
+
+.waterfall .media-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.waterfall .thumb {
+  flex: 1;
+  aspect-ratio: auto;
+}
+
+/* 时间流：月份标题吸顶 */
+.month-title {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--p-surface-0);
+}
+
+.app-dark .month-title {
+  background: var(--p-surface-900);
+}
+
+/* 右侧月份索引条 */
+.month-rail {
+  width: 72px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--p-surface-200);
+  display: flex;
+  flex-direction: column;
+  padding: 8px 4px;
+  gap: 2px;
+}
+
+.app-dark .month-rail {
+  border-left-color: var(--p-surface-700);
+}
+
+.month-rail-item {
+  border: none;
+  background: transparent;
+  color: var(--p-text-muted-color);
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.month-rail-item:hover {
+  background: var(--p-surface-100);
+  color: var(--p-text-color);
+}
+
+.app-dark .month-rail-item:hover {
+  background: var(--p-surface-800);
 }
 
 /* ---- 媒体卡片 ---- */
@@ -1035,12 +1226,9 @@ watch(
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: filter 0.3s ease;
-}
-
-.thumb img.blurred {
-  filter: blur(8px);
-  transform: scale(1.1);
+  /* 内嵌模糊图作背景占位，HTTP 清晰图加载完成后自然覆盖 */
+  background-size: cover;
+  background-position: center;
 }
 
 .thumb-icon {

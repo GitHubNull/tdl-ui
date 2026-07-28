@@ -5,7 +5,25 @@
         <h1>下载</h1>
         <p>下载任务的实时进度与控制</p>
       </div>
-      <Button label="添加下载" icon="pi pi-plus" @click="showDialog = true" />
+      <div class="header-actions">
+        <Button
+          label="清除已完成记录"
+          icon="pi pi-eraser"
+          severity="secondary"
+          outlined
+          :disabled="!hasFinished"
+          @click="onClearFinished"
+        />
+        <Button
+          label="删除所有文件"
+          icon="pi pi-trash"
+          severity="danger"
+          outlined
+          :disabled="!tasks.tasks.length"
+          @click="onDeleteAll"
+        />
+        <Button label="添加下载" icon="pi pi-plus" @click="showDialog = true" />
+      </div>
     </div>
 
     <div v-if="!tasks.tasks.length" class="empty-state panel-card">
@@ -20,6 +38,14 @@
         <span class="title" :title="t.label || t.urls.join('\n')">{{ taskTitle(t) }}</span>
         <span class="meta">{{ t.finished }}/{{ t.total || '?' }} 个文件</span>
 
+        <Button
+          icon="pi pi-folder-open"
+          severity="secondary"
+          text
+          rounded
+          v-tooltip.top="'打开目录'"
+          @click="onOpenDir(t.id)"
+        />
         <Button
           v-if="t.status === 'running' || t.status === 'queued'"
           icon="pi pi-pause"
@@ -56,6 +82,15 @@
           v-tooltip.top="'移除记录'"
           @click="tasks.remove(t.id)"
         />
+        <Button
+          v-if="isFinal(t.status)"
+          :icon="expanded[t.id] ? 'pi pi-chevron-up' : 'pi pi-list'"
+          severity="secondary"
+          text
+          rounded
+          v-tooltip.top="'文件列表'"
+          @click="toggleFiles(t)"
+        />
       </div>
 
       <ProgressBar
@@ -70,6 +105,7 @@
         <span><i class="pi pi-folder" /> {{ t.dir }}</span>
         <span v-if="t.scriptName"><i class="pi pi-code" /> {{ t.scriptName }}</span>
         <span v-if="t.failed"><i class="pi pi-exclamation-triangle" /> 失败 {{ t.failed }}</span>
+        <span v-if="t.fileCount"><i class="pi pi-file" /> 已登记 {{ t.fileCount }} 个文件</span>
         <span>{{ t.createdAt }}</span>
       </div>
 
@@ -86,27 +122,170 @@
           style="width: 120px; height: 4px"
         />
       </div>
+
+      <!-- 已登记文件列表（展开时懒加载） -->
+      <div v-if="expanded[t.id]" class="files-panel mt-8">
+        <div v-if="loadingFiles[t.id]" class="files-hint">加载中…</div>
+        <template v-else>
+          <div v-if="!fileLists[t.id]?.length" class="files-hint">无文件记录</div>
+          <div v-for="f in fileLists[t.id]" :key="f.path" class="task-file-row">
+            <Checkbox v-model="selectedPaths[t.id]" :value="f.path" />
+            <span class="name" :title="f.path">{{ f.name }}</span>
+            <span class="size">{{ fmtSize(f.size) }}</span>
+            <Tag
+              :value="fileStateLabel(f.state)"
+              :severity="fileStateSeverity(f.state)"
+              class="state-tag"
+            />
+          </div>
+          <div v-if="selectedPaths[t.id]?.length" class="files-actions">
+            <Button
+              :label="`删除选中文件（${selectedPaths[t.id].length}）`"
+              icon="pi pi-trash"
+              severity="danger"
+              size="small"
+              outlined
+              @click="onDeleteSelected(t)"
+            />
+          </div>
+        </template>
+      </div>
     </div>
 
     <NewTaskDialog v-model:visible="showDialog" @created="onCreated" />
+    <ConfirmDialog />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useToast } from 'primevue/usetoast'
+import { useConfirm } from 'primevue/useconfirm'
 import Button from 'primevue/button'
+import Checkbox from 'primevue/checkbox'
+import ConfirmDialog from 'primevue/confirmdialog'
 import Message from 'primevue/message'
 import ProgressBar from 'primevue/progressbar'
 import Tag from 'primevue/tag'
 
 import NewTaskDialog from '../components/NewTaskDialog.vue'
-import type { TaskView } from '../types'
+import { Download } from '../api'
+import type { TaskFile, TaskView } from '../types'
 import { useTasksStore } from '../stores/tasks'
 
 const tasks = useTasksStore()
 const toast = useToast()
+const confirm = useConfirm()
 const showDialog = ref(false)
+
+// 任务文件列表的展开与多选状态
+const expanded = reactive<Record<string, boolean>>({})
+const loadingFiles = reactive<Record<string, boolean>>({})
+const fileLists = reactive<Record<string, TaskFile[]>>({})
+const selectedPaths = reactive<Record<string, string[]>>({})
+
+const hasFinished = computed(() => tasks.tasks.some((t) => t.status === 'done'))
+
+async function toggleFiles(t: TaskView) {
+  if (expanded[t.id]) {
+    expanded[t.id] = false
+    return
+  }
+  expanded[t.id] = true
+  if (!selectedPaths[t.id]) selectedPaths[t.id] = []
+  loadingFiles[t.id] = true
+  try {
+    fileLists[t.id] = (await Download.listTaskFiles(t.id)) ?? []
+  } catch (e) {
+    toast.add({ severity: 'error', summary: '加载文件列表失败', detail: String(e), life: 4000 })
+    expanded[t.id] = false
+  } finally {
+    loadingFiles[t.id] = false
+  }
+}
+
+async function onOpenDir(id: string) {
+  try {
+    await tasks.openDir(id)
+  } catch (e) {
+    toast.add({ severity: 'error', summary: '打开目录失败', detail: String(e), life: 4000 })
+  }
+}
+
+async function onClearFinished() {
+  try {
+    await tasks.clearFinished()
+    toast.add({ severity: 'success', summary: '已清除完成记录', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: '清除失败', detail: String(e), life: 5000 })
+  }
+}
+
+function onDeleteAll() {
+  confirm.require({
+    header: '删除所有文件',
+    message: '将停止所有未完成任务，并删除全部已登记的下载文件与任务记录，且不可恢复。确定继续？',
+    icon: 'pi pi-exclamation-triangle',
+    acceptProps: { label: '删除', severity: 'danger' },
+    rejectProps: { label: '取消', severity: 'secondary', outlined: true },
+    accept: async () => {
+      try {
+        await tasks.deleteAllFiles()
+        for (const k of Object.keys(expanded)) delete expanded[k]
+        toast.add({ severity: 'success', summary: '已删除全部文件与记录', life: 3000 })
+      } catch (e) {
+        toast.add({ severity: 'error', summary: '删除失败', detail: String(e), life: 5000 })
+      }
+    },
+  })
+}
+
+function onDeleteSelected(t: TaskView) {
+  const paths = selectedPaths[t.id] ?? []
+  if (!paths.length) return
+  confirm.require({
+    header: '删除选中文件',
+    message: `将删除 ${paths.length} 个文件（记录同步移除），且不可恢复。确定继续？`,
+    icon: 'pi pi-exclamation-triangle',
+    acceptProps: { label: '删除', severity: 'danger' },
+    rejectProps: { label: '取消', severity: 'secondary', outlined: true },
+    accept: async () => {
+      try {
+        await tasks.deleteFiles(t.id, paths)
+        selectedPaths[t.id] = []
+        if (tasks.tasks.some((x) => x.id === t.id)) {
+          fileLists[t.id] = (await Download.listTaskFiles(t.id)) ?? []
+        } else {
+          delete expanded[t.id] // 文件全部删除，记录已被后端移除
+        }
+        toast.add({ severity: 'success', summary: '已删除选中文件', life: 3000 })
+      } catch (e) {
+        toast.add({ severity: 'error', summary: '删除失败', detail: String(e), life: 5000 })
+      }
+    },
+  })
+}
+
+const fileStateText: Record<string, string> = {
+  downloading: '未完成',
+  done: '已完成',
+  failed: '失败',
+}
+
+function fileStateLabel(s: string) {
+  return fileStateText[s] ?? s
+}
+
+function fileStateSeverity(s: string) {
+  switch (s) {
+    case 'done':
+      return 'success'
+    case 'failed':
+      return 'danger'
+    default:
+      return 'warn'
+  }
+}
 
 async function onCreated() {
   await tasks.refresh()
@@ -184,6 +363,13 @@ function fmtSize(n: number) {
   gap: 16px;
 }
 
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .meta {
   color: var(--p-text-muted-color);
   font-size: 13px;
@@ -211,5 +397,46 @@ function fmtSize(n: number) {
 
 .file-row .failed {
   color: var(--p-red-500);
+}
+
+.files-panel {
+  border-top: 1px solid var(--p-content-border-color);
+  padding-top: 8px;
+}
+
+.files-hint {
+  color: var(--p-text-muted-color);
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+.task-file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.task-file-row .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-file-row .size {
+  color: var(--p-text-muted-color);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.task-file-row .state-tag {
+  font-size: 11px;
+}
+
+.files-actions {
+  margin-top: 8px;
 }
 </style>

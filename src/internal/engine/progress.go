@@ -55,6 +55,12 @@ func newProgress(task *Task, it *iter, rewriteExt bool) *progress {
 
 func (p *progress) OnAdd(elem downloader.Elem) {
 	e := elem.(*iterElem)
+	p.task.addFile(TaskFile{
+		Name:  strings.TrimSuffix(filepath.Base(e.to.Name()), tempExt),
+		Path:  e.to.Name(),
+		Size:  e.file.Size,
+		State: "downloading",
+	})
 	p.emit(e, e.file.Size, 0, "downloading", nil)
 }
 
@@ -77,6 +83,7 @@ func (p *progress) OnDownload(elem downloader.Elem, state downloader.ProgressSta
 
 func (p *progress) OnDone(elem downloader.Elem, err error) {
 	e := elem.(*iterElem)
+	tmpPath := e.to.Name()
 
 	if cerr := e.to.Close(); cerr != nil {
 		p.fail(e, errors.Wrap(cerr, "close file"))
@@ -87,29 +94,37 @@ func (p *progress) OnDone(elem downloader.Elem, err error) {
 		if !errors.Is(err, context.Canceled) { // 用户取消不算失败
 			p.fail(e, err)
 		}
-		_ = os.Remove(e.to.Name()) // 尽力清理临时文件
+		_ = os.Remove(tmpPath) // 尽力清理临时文件
+		p.task.dropFile(tmpPath)
 		return
 	}
 
 	p.it.Finish(e.logicalPos)
 
-	if perr := p.donePost(e); perr != nil {
+	newpath, perr := p.donePost(e)
+	if perr != nil {
 		p.fail(e, errors.Wrap(perr, "post file"))
 		return
 	}
+	p.task.finishFile(tmpPath, TaskFile{
+		Name:  filepath.Base(newpath),
+		Path:  newpath,
+		Size:  e.file.Size,
+		State: "done",
+	})
 
 	p.task.onFileDone(e.info)
 	p.emit(e, e.file.Size, e.file.Size, "done", nil)
 }
 
-// donePost 去除 .tmp 后缀、可选按 MIME 重写扩展名、还原消息时间。
-func (p *progress) donePost(e *iterElem) error {
+// donePost 去除 .tmp 后缀、可选按 MIME 重写扩展名、还原消息时间；返回最终路径。
+func (p *progress) donePost(e *iterElem) (string, error) {
 	newfile := strings.TrimSuffix(filepath.Base(e.to.Name()), tempExt)
 
 	if p.rewriteExt {
 		mime, err := mimetype.DetectFile(e.to.Name())
 		if err != nil {
-			return errors.Wrap(err, "detect mime")
+			return "", errors.Wrap(err, "detect mime")
 		}
 		if ext := mime.Extension(); ext != "" && filepath.Ext(newfile) != ext {
 			newfile = fsutil.GetNameWithoutExt(newfile) + ext
@@ -118,20 +133,21 @@ func (p *progress) donePost(e *iterElem) error {
 
 	newpath := filepath.Join(filepath.Dir(e.to.Name()), newfile)
 	if err := os.Rename(e.to.Name(), newpath); err != nil {
-		return errors.Wrap(err, "rename file")
+		return "", errors.Wrap(err, "rename file")
 	}
 
 	if e.file.Date > 0 {
 		fileTime := time.Unix(e.file.Date, 0)
 		if err := os.Chtimes(newpath, fileTime, fileTime); err != nil {
-			return errors.Wrap(err, "set file time")
+			return "", errors.Wrap(err, "set file time")
 		}
 	}
 
-	return nil
+	return newpath, nil
 }
 
 func (p *progress) fail(e *iterElem, err error) {
+	p.task.markFileFailed(e.to.Name())
 	p.task.onFileFailed()
 	p.emit(e, e.file.Size, 0, "failed", err)
 }

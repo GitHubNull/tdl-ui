@@ -67,7 +67,8 @@ func main() {
 		MinWidth:  960,
 		MinHeight: 640,
 		AssetServer: &assetserver.Options{
-			Assets: assets,
+			Assets:  assets,
+			Handler: services.NewMediaHandler(chatSvc), // /media/thumb 与 /media/preview
 		},
 		BackgroundColour: &options.RGBA{R: 250, G: 250, B: 251, A: 1},
 		OnStartup: func(ctx context.Context) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
-	"fmt"
 	"sync"
 	"time"
 
@@ -92,69 +91,81 @@ func pickThumbSize(sizes []tg.PhotoSizeClass) (thumbType string, inline []byte) 
 	return smallest, inline
 }
 
-// thumbCacheLimit 清晰缩略图内存缓存上限（约几十 MB 量级，超限整体清空重建）。
-const thumbCacheLimit = 500
-
-// GetThumbnail 按需拉取消息媒体的清晰小缩略图，返回 data URI；
-// 无可用缩略图（如普通文件）返回空串。结果在服务内缓存。
-func (s *ChatService) GetThumbnail(dialogID int64, dialogType string, messageID int) (string, error) {
-	if dialogID == 0 || messageID == 0 {
-		return "", errors.New("缺少对话或消息 ID")
-	}
-
-	cacheKey := fmt.Sprintf("%d/%d", dialogID, messageID)
-	s.thumbMu.Lock()
-	if uri, ok := s.thumbCache[cacheKey]; ok {
-		s.thumbMu.Unlock()
-		return uri, nil
-	}
-	s.thumbMu.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	var uri string
-	err := s.invoke(ctx, func(ctx context.Context, api *tg.Client) error {
-		kvd, err := s.kv.Open(engine.Namespace)
-		if err != nil {
-			return errors.Wrap(err, "open kv")
+// pickPreviewSize 选择预览大图规格：取像素面积最大的真实尺寸；
+// 无真实尺寸时回退 PhotoCachedSize 内联字节。
+func pickPreviewSize(sizes []tg.PhotoSizeClass) (thumbType string, inline []byte) {
+	bestArea := 0
+	for _, sc := range sizes {
+		switch v := sc.(type) {
+		case *tg.PhotoSize:
+			if a := v.W * v.H; a > bestArea {
+				thumbType, bestArea = v.Type, a
+			}
+		case *tg.PhotoSizeProgressive:
+			if a := v.W * v.H; a > bestArea {
+				thumbType, bestArea = v.Type, a
+			}
+		case *tg.PhotoCachedSize:
+			inline = v.Bytes
 		}
-		manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(api)
-
-		inputPeer, err := engine.ResolveDialogPeer(ctx, manager, dialogID, dialogType)
-		if err != nil {
-			return err
-		}
-
-		msg, err := tutil.GetSingleMessage(ctx, api, inputPeer, messageID)
-		if err != nil {
-			return errors.Wrap(err, "获取消息失败")
-		}
-
-		uri, err = fetchThumb(ctx, api, msg)
-		return err
-	})
-	if err != nil {
-		return "", err
 	}
-
-	s.thumbMu.Lock()
-	if len(s.thumbCache) >= thumbCacheLimit {
-		s.thumbCache = make(map[string]string, thumbCacheLimit)
-	}
-	if s.thumbCache == nil { // 零值构造的服务（如测试）兜底
-		s.thumbCache = make(map[string]string, thumbCacheLimit)
-	}
-	s.thumbCache[cacheKey] = uri
-	s.thumbMu.Unlock()
-	return uri, nil
+	return thumbType, inline
 }
 
-// fetchThumb 从消息媒体定位缩略图并下载；无可用缩略图返回空串。
-func fetchThumb(ctx context.Context, api *tg.Client, msg *tg.Message) (string, error) {
+// thumbJPEG 拉取消息媒体的缩略图（preview=true 取最大尺寸预览图），
+// 经磁盘缓存返回 JPEG 字节；无可用缩略图（如普通文件）返回空切片。
+func (s *ChatService) thumbJPEG(dialogID int64, dialogType string, messageID int, preview bool) ([]byte, error) {
+	if dialogID == 0 || messageID == 0 {
+		return nil, errors.New("缺少对话或消息 ID")
+	}
+
+	kind := cacheKindThumb
+	if preview {
+		kind = cacheKindPreview
+	}
+	return s.thumbs.Get(kind, dialogID, messageID, func() ([]byte, error) {
+		// 超时需覆盖在常驻客户端队列中的排队时间（列表扫描等大任务可能插队在前）
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+
+		var out []byte
+		err := s.invoke(ctx, func(ctx context.Context, api *tg.Client) error {
+			kvd, err := s.kv.Open(engine.Namespace)
+			if err != nil {
+				return errors.Wrap(err, "open kv")
+			}
+			manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(api)
+
+			inputPeer, err := engine.ResolveDialogPeer(ctx, manager, dialogID, dialogType)
+			if err != nil {
+				return err
+			}
+
+			msg, err := tutil.GetSingleMessage(ctx, api, inputPeer, messageID)
+			if err != nil {
+				return errors.Wrap(err, "获取消息失败")
+			}
+
+			out, err = fetchThumb(ctx, api, msg, preview)
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+		return out, nil
+	})
+}
+
+// fetchThumb 从消息媒体定位缩略图并下载；无可用缩略图返回空切片。
+func fetchThumb(ctx context.Context, api *tg.Client, msg *tg.Message, preview bool) ([]byte, error) {
 	media, ok := msg.GetMedia()
 	if !ok {
-		return "", nil
+		return nil, nil
+	}
+
+	pick := pickThumbSize
+	if preview {
+		pick = pickPreviewSize
 	}
 
 	var (
@@ -165,9 +176,9 @@ func fetchThumb(ctx context.Context, api *tg.Client, msg *tg.Message) (string, e
 	case *tg.MessageMediaPhoto:
 		p, ok := md.Photo.(*tg.Photo)
 		if !ok {
-			return "", nil
+			return nil, nil
 		}
-		typ, cached := pickThumbSize(p.Sizes)
+		typ, cached := pick(p.Sizes)
 		if typ == "" {
 			inline = cached
 			break
@@ -181,9 +192,9 @@ func fetchThumb(ctx context.Context, api *tg.Client, msg *tg.Message) (string, e
 	case *tg.MessageMediaDocument:
 		doc, ok := md.Document.(*tg.Document)
 		if !ok {
-			return "", nil
+			return nil, nil
 		}
-		typ, cached := pickThumbSize(doc.Thumbs)
+		typ, cached := pick(doc.Thumbs)
 		if typ == "" {
 			inline = cached
 			break
@@ -195,21 +206,13 @@ func fetchThumb(ctx context.Context, api *tg.Client, msg *tg.Message) (string, e
 			ThumbSize:     typ,
 		}
 	default:
-		return "", nil
+		return nil, nil
 	}
 
 	if loc == nil {
-		if len(inline) > 0 {
-			return jpegDataURI(inline), nil
-		}
-		return "", nil
+		return inline, nil
 	}
-
-	b, err := downloadSmallFile(ctx, api, loc)
-	if err != nil {
-		return "", err
-	}
-	return jpegDataURI(b), nil
+	return downloadSmallFile(ctx, api, loc)
 }
 
 // downloadSmallFile 分块拉取小文件（缩略图通常一次即完成）。

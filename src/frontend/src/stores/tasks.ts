@@ -67,5 +67,21 @@ export const useTasksStore = defineStore('tasks', {
       this.tasks = this.tasks.filter((t) => t.id !== id)
       delete this.files[id]
     },
+    async clearFinished() {
+      await Download.clearFinishedTasks()
+      await this.refresh()
+    },
+    async deleteAllFiles() {
+      await Download.deleteAllFiles()
+      this.files = {}
+      await this.refresh()
+    },
+    async deleteFiles(id: string, paths: string[]) {
+      await Download.deleteTaskFiles(id, paths)
+      await this.refresh()
+    },
+    async openDir(id: string) {
+      await Download.openTaskDir(id)
+    },
   },
 })

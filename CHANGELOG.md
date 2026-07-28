@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0] - 2026-07-28 23:36:21
+
+### Added
+- 下载任务记录持久化到磁盘（`tasks.json`），重启后保留；任务内文件级跟踪（.tmp → 最终路径 → done/failed）。
+- 下载管理页新增：清除已完成记录、删除所有文件（ConfirmDialog 二次确认）、打开目录、文件列表展开与多选删除。
+- 媒体列表支持瀑布流 / 网格 / 时间流三种布局切换，选择持久化到 localStorage。
+- 时间流布局：按月份分组、右侧月份索引条锚点跳转、DatePicker 任意月份跳转（OffsetDate 查询管线）。
+- Lightbox 全屏预览：图片大图缩放（0.5x–5x）/ 平移 / 双击复位，左右键盘切换，尾部自动 loadMore；视频仅预览大缩略图。
+- 缩略图磁盘缓存（`cache/thumbs/` + `cache/previews/`）+ 本地 HTTP 服务（`/media/thumb`、`/media/preview`），响应头 `Cache-Control: immutable`。
+- 新增 `MediaItem.Width/Height` 支持，瀑布流按纵横比占位。
+
+### Changed
+- 缩略图通道整体替换为 HTTP 服务（旧 data URI 通道移除，禁止向后兼容），浏览器接管并发与缓存。
+- 下载任务 `TaskView` 新增 `FileCount` 字段；`Task` 增加 `files` 与 `done channel` 支持。
+- `thumb.go` 超时提升至 3 分钟，适配单 worker 串行队列。
+
+### Fixed
+- 修复 `wails dev` 下 `explorer` 不在 PATH 导致「打开目录」失败：改用 `%SystemRoot%\explorer.exe` 绝对路径。
+- 修复 Vite SPA fallback 吞 `/media/*` 请求：新增 `media404` 插件让 Wails 回落后端 Handler。
+
 ## [0.3.0] - 2026-07-28 21:18:01
 
 ### Added
@@ -33,4 +53,3 @@
 - 添加 Wails 桌面应用框架基础结构。
 - 添加前端 Vue 3 + PrimeVue 基础架构。
 - 添加项目文档与基础配置文件。
-

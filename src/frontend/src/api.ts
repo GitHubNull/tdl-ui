@@ -9,6 +9,7 @@ import type {
   MediaQuery,
   ScriptMeta,
   Settings,
+  TaskFile,
   TaskOptions,
   TaskView,
   TestRunResult,
@@ -55,6 +56,12 @@ export const Download = {
   resumeTask: (id: string): Promise<void> => svc('DownloadService').ResumeTask(id),
   cancelTask: (id: string): Promise<void> => svc('DownloadService').CancelTask(id),
   removeTask: (id: string): Promise<void> => svc('DownloadService').RemoveTask(id),
+  listTaskFiles: (id: string): Promise<TaskFile[]> => svc('DownloadService').ListTaskFiles(id),
+  clearFinishedTasks: (): Promise<void> => svc('DownloadService').ClearFinishedTasks(),
+  deleteTaskFiles: (id: string, paths: string[]): Promise<void> =>
+    svc('DownloadService').DeleteTaskFiles(id, paths),
+  deleteAllFiles: (): Promise<void> => svc('DownloadService').DeleteAllFiles(),
+  openTaskDir: (id: string): Promise<void> => svc('DownloadService').OpenTaskDir(id),
   selectDirectory: (): Promise<string> => svc('DownloadService').SelectDirectory(),
 }
 
@@ -80,8 +87,15 @@ export const SettingsApi = {
 export const Chat = {
   listDialogs: (): Promise<DialogView[]> => svc('ChatService').ListDialogs(),
   listMedia: (q: MediaQuery): Promise<MediaPage> => svc('ChatService').ListMedia(q),
-  getThumbnail: (dialogId: number, dialogType: string, messageId: number): Promise<string> =>
-    svc('ChatService').GetThumbnail(dialogId, dialogType, messageId),
+}
+
+// ---- 媒体图 HTTP 通道（后端 assetserver Handler，浏览器接管并发与缓存） ----
+export function thumbURL(dialogId: number, dialogType: string, messageId: number): string {
+  return `/media/thumb?d=${dialogId}&m=${messageId}&t=${encodeURIComponent(dialogType)}`
+}
+
+export function previewURL(dialogId: number, dialogType: string, messageId: number): string {
+  return `/media/preview?d=${dialogId}&m=${messageId}&t=${encodeURIComponent(dialogType)}`
 }
 
 // ---- 事件契约（与 internal/events/events.go 一致） ----

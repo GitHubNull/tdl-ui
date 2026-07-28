@@ -2,7 +2,11 @@ package services
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+
+	"github.com/go-faster/errors"
 )
 
 // userHomeDir 便于测试替换的家目录获取。
@@ -15,4 +19,24 @@ func appendTData(path string) string {
 		path = filepath.Join(path, "tdata")
 	}
 	return path
+}
+
+// openDirectory 用系统文件管理器打开目录。
+func openDirectory(dir string) error {
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return errors.Errorf("目录不存在: %s", dir)
+	}
+	switch runtime.GOOS {
+	case "windows":
+		// dev 环境子进程的 PATH 可能不含系统目录，使用绝对路径调用 explorer。
+		explorer := "explorer.exe"
+		if root := os.Getenv("SystemRoot"); root != "" {
+			explorer = filepath.Join(root, "explorer.exe")
+		}
+		return exec.Command(explorer, dir).Start()
+	case "darwin":
+		return exec.Command("open", dir).Start()
+	default:
+		return exec.Command("xdg-open", dir).Start()
+	}
 }
