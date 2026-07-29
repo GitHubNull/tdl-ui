@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-labelledby="lml-title lml-desc">
+  <title id="lml-title">tdl UI Logo Mark（单色浅）</title>
+  <desc id="lml-desc">纯白单色纸飞机与托盘标志，用于深色背景场景</desc>
+  <g fill="#FFFFFF">
+    <path d="M100 146 L52 50 L100 86 L148 50 Z"/>
+    <path opacity="0.6" d="M100 146 L100 86 L148 50 Z"/>
+    <rect x="52" y="158" width="96" height="12" rx="6"/>
+  </g>
+</svg>

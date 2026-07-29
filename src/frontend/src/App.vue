@@ -1,7 +1,7 @@
 <template>
   <div class="app-shell">
     <aside class="app-sidebar">
-      <div class="brand">tdl</div>
+      <img class="brand" :src="appIcon" alt="tdl UI" draggable="false" />
       <router-link
         v-for="item in navItems"
         :key="item.path"
@@ -17,7 +17,7 @@
           :aria-label="item.title"
           @click="navigate"
         >
-          <i :class="item.icon" />
+          <AppIcon :name="item.icon" />
         </div>
       </router-link>
       <div class="nav-spacer" />
@@ -29,7 +29,7 @@
         aria-label="账号"
         @click="goLogin"
       >
-        <i class="pi pi-user" />
+        <AppIcon name="account" />
       </div>
       <div
         class="nav-item"
@@ -38,7 +38,7 @@
         aria-label="切换主题"
         @click="toggleTheme"
       >
-        <i :class="isDark ? 'pi pi-sun' : 'pi pi-moon'" />
+        <AppIcon :name="isDark ? 'theme-light' : 'theme-dark'" />
       </div>
     </aside>
 
@@ -55,6 +55,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import Toast from 'primevue/toast'
 
+import AppIcon from './components/AppIcon.vue'
+import appIcon from './assets/app-icon.svg'
 import { router } from './router'
 import { getTheme, setTheme } from './theme'
 import { useAuthStore } from './stores/auth'

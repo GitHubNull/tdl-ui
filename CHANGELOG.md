@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.8.0] - 2026-07-29 21:14:08
+
+### Added
+- **品牌视觉素材系统**：全套图标、Logo、宣传海报、空状态插图接入项目
+  - 新增 `img/` 目录（Logo、导航图标、登录图标、状态图标、插图、宣传材料），含完整 README 规范文档
+  - 新增 `AppIcon.vue` 组件：内联 11 个品牌 SVG 图标（currentColor 描边，自动适配明暗主题）
+  - 侧边栏品牌位由文本 "tdl" 替换为品牌图标图片
+  - 导航图标（对话/下载/脚本/日志/设置）、账号、主题切换全部接入品牌图标
+  - 登录页顶部新增英雄插图，三个登录方式 Tab 图标替换为品牌图标（验证码/二维码/Desktop）
+  - TasksPage 与 ChatsPage 空状态替换为专用插图（empty-tasks / empty-chats）
+  - README.md / README_EN.md 顶部接入横幅头图，界面预览节加入宣传海报
+- **Wails 构建图标**：替换 `src/build/appicon.png` 与 `src/build/windows/icon.ico`
+- **前端 favicon**：`index.html` 新增 SVG + PNG 双格式 favicon
+- **类型支持**：新增 `vite-env.d.ts` 提供 `?raw` SVG 导入类型声明
+
 ## [0.7.0] - 2026-07-29 20:50:59
 
 ### Removed

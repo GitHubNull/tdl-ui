@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-labelledby="lm-title lm-desc">
+  <title id="lm-title">tdl UI Logo Mark</title>
+  <desc id="lm-desc">向下飞行的蓝色渐变纸飞机落向接收托盘，寓意 Telegram 内容下载</desc>
+  <defs>
+    <linearGradient id="lm-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+  </defs>
+  <g id="plane">
+    <path fill="url(#lm-g)" d="M100 146 L52 50 L100 86 L148 50 Z"/>
+    <path fill="#1D4ED8" opacity="0.88" d="M100 146 L100 86 L148 50 Z"/>
+  </g>
+  <g id="tray">
+    <rect x="52" y="158" width="96" height="12" rx="6" fill="url(#lm-g)"/>
+  </g>
+</svg>

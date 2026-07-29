@@ -103,7 +103,7 @@
       <!-- 右面板：媒体内容 -->
       <section class="media-panel panel-card">
         <div v-if="!selectedId" class="empty-state media-empty">
-          <i class="pi pi-images" />
+          <img class="empty-illustration" :src="emptyChats" alt="" draggable="false" />
           <p>从左侧选择一个对话，浏览并下载其中的媒体文件</p>
         </div>
 
@@ -300,6 +300,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
+import emptyChats from '../assets/illustrations/empty-chats.svg'
 import Badge from 'primevue/badge'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'

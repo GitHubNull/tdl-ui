@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180" width="240" height="180" role="img" aria-labelledby="et-t lh-d2">
+  <title id="et-t">下载任务空状态插图</title>
+  <desc id="lh-d2">空的接收托盘上方漂浮着虚线纸飞机轮廓，提示尚无下载任务</desc>
+  <circle cx="120" cy="86" r="64" fill="#3B82F6" opacity="0.07"/>
+  <g transform="translate(88,42)" fill="none" stroke="#94A3B8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 5">
+    <path d="M32 62 L8 12 L32 30 L56 12 Z"/>
+  </g>
+  <rect x="84" y="118" width="72" height="9" rx="4.5" fill="#CBD5E1"/>
+  <g fill="#CBD5E1">
+    <circle cx="70" cy="52" r="2.4"/>
+    <circle cx="172" cy="70" r="2.4"/>
+    <circle cx="160" cy="38" r="1.8"/>
+  </g>
+</svg>

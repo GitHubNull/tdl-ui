@@ -1,0 +1,204 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1536" width="1024" height="1536" role="img" aria-labelledby="ps-t ps-d">
+  <title id="ps-t">tdl UI 宣传海报</title>
+  <desc id="ps-d">深蓝渐变竖版海报：上部品牌符号与产品名，下部按真实应用还原的界面示意（侧边栏导航与下载任务列表）</desc>
+  <defs>
+    <linearGradient id="ps-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1E3A8A"/>
+      <stop offset="0.5" stop-color="#1D4ED8"/>
+      <stop offset="1" stop-color="#3B82F6"/>
+    </linearGradient>
+    <linearGradient id="ps-lg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <filter id="ps-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="24" flood-color="#0F172A" flood-opacity="0.35"/>
+    </filter>
+    <!-- 复用导航图标符号（与 img/icons/navigation 一致） -->
+    <g id="ic-chats" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 11.2c0 3.8-3.6 6.8-8 6.8-1 0-2-.15-2.9-.44L5 19l.85-3.05C4.7 14.75 4 13.05 4 11.2 4 7.4 7.6 4.4 12 4.4s8 3 8 6.8Z"/>
+    </g>
+    <g id="ic-download" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 4v9.5"/>
+      <path d="M7.5 9.5 12 14l4.5-4.5"/>
+      <path d="M5 17.5h14" stroke-width="2.2"/>
+    </g>
+    <g id="ic-scripts" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8.5 8 4.5 12l4 4"/>
+      <path d="M15.5 8l4 4-4 4"/>
+      <path d="M13.2 5.5l-2.4 13"/>
+    </g>
+    <g id="ic-logs" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="5" y="4" width="14" height="16" rx="2.5"/>
+      <path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4"/>
+    </g>
+    <g id="ic-settings" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18.43 10.52 L20.73 10.93 L20.73 13.07 L18.43 13.48 L17.60 15.50 L18.93 17.42 L17.42 18.93 L15.50 17.60 L13.48 18.43 L13.07 20.73 L10.93 20.73 L10.52 18.43 L8.50 17.60 L6.58 18.93 L5.07 17.42 L6.40 15.50 L5.57 13.48 L3.27 13.07 L3.27 10.93 L5.57 10.52 L6.40 8.50 L5.07 6.58 L6.58 5.07 L8.50 6.40 L10.52 5.57 L10.93 3.27 L13.07 3.27 L13.48 5.57 L15.50 6.40 L17.42 5.07 L18.93 6.58 L17.60 8.50 Z"/>
+      <circle cx="12" cy="12" r="2.6"/>
+    </g>
+    <g id="ic-account" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="8.2" r="3.6"/>
+      <path d="M5 19.6c.9-3.2 3.7-5 7-5s6.1 1.8 7 5"/>
+    </g>
+    <g id="ic-moon" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19.5 14.2A8 8 0 0 1 9.8 4.5 8 8 0 1 0 19.5 14.2Z"/>
+    </g>
+  </defs>
+
+  <rect width="1024" height="1536" fill="url(#ps-bg)"/>
+
+  <!-- 背景装饰 -->
+  <circle cx="880" cy="120" r="220" fill="#FFFFFF" opacity="0.05"/>
+  <circle cx="120" cy="560" r="160" fill="#FFFFFF" opacity="0.05"/>
+  <g fill="#93C5FD" opacity="0.55">
+    <circle cx="140" cy="180" r="3.4"/>
+    <circle cx="900" cy="420" r="3"/>
+    <circle cx="220" cy="420" r="2.4"/>
+    <circle cx="820" cy="240" r="2.4"/>
+    <circle cx="90" cy="330" r="2"/>
+    <circle cx="950" cy="620" r="2.4"/>
+  </g>
+  <path d="M120 470 C 240 380, 380 300, 470 250" fill="none" stroke="#BFDBFE" stroke-width="3" stroke-dasharray="2 12" stroke-linecap="round" opacity="0.7"/>
+  <g transform="translate(760,120) rotate(18) scale(0.75)">
+    <path fill="#FFFFFF" d="M40 84 L8 12 L40 40 L72 12 Z" opacity="0.9"/>
+    <path fill="#93C5FD" d="M40 84 L40 40 L72 12 Z"/>
+  </g>
+
+  <!-- 品牌符号：发光圆角框 -->
+  <g transform="translate(412,108)">
+    <rect width="200" height="200" rx="44" fill="#FFFFFF" opacity="0.1"/>
+    <rect x="1.5" y="1.5" width="197" height="197" rx="42.5" fill="none" stroke="#93C5FD" stroke-width="3" opacity="0.8"/>
+    <g transform="translate(30,18) scale(0.7)">
+      <path fill="#FFFFFF" d="M100 146 L52 50 L100 86 L148 50 Z"/>
+      <path fill="#BFDBFE" d="M100 146 L100 86 L148 50 Z"/>
+      <rect x="52" y="158" width="96" height="12" rx="6" fill="#FFFFFF"/>
+    </g>
+  </g>
+
+  <!-- 产品名与标语 -->
+  <g font-family="'Segoe UI','Microsoft YaHei',system-ui,-apple-system,sans-serif" text-anchor="middle">
+    <text x="512" y="452" font-size="104" font-weight="700" fill="#FFFFFF">tdl <tspan fill="#93C5FD">UI</tspan></text>
+    <text x="512" y="524" font-size="38" fill="#DBEAFE">跨平台 Telegram 下载工具</text>
+    <text x="512" y="580" font-size="24" fill="#BFDBFE" opacity="0.85">对话浏览 · 批量下载 · 脚本扩展 · 明暗主题</text>
+  </g>
+
+  <!-- 应用窗口示意（按真实 UI 还原：64px 侧边栏 + 导航顺序 对话/下载/脚本/日志/设置 + 底部 账号/主题） -->
+  <g filter="url(#ps-shadow)">
+    <rect x="102" y="656" width="820" height="808" rx="20" fill="#F8FAFC"/>
+  </g>
+  <!-- 标题栏 -->
+  <path d="M102 676c0-11 9-20 20-20h780c11 0 20 9 20 20v24H102Z" fill="#EFF3F8"/>
+  <circle cx="134" cy="678" r="7" fill="#F87171"/>
+  <circle cx="158" cy="678" r="7" fill="#FBBF24"/>
+  <circle cx="182" cy="678" r="7" fill="#34D399"/>
+
+  <!-- 侧边栏 -->
+  <path d="M102 700h64v744h-44c-11 0-20-9-20-20Z" fill="#FFFFFF"/>
+  <line x1="166" y1="700" x2="166" y2="1464" stroke="#E2E8F0" stroke-width="1.5"/>
+  <!-- 品牌位 -->
+  <g transform="translate(114,716)">
+    <rect width="40" height="40" rx="10" fill="url(#ps-lg)"/>
+    <g transform="translate(6,3.6) scale(0.14)">
+      <path fill="#FFFFFF" d="M100 146 L52 50 L100 86 L148 50 Z"/>
+      <path fill="#BFDBFE" d="M100 146 L100 86 L148 50 Z"/>
+      <rect x="52" y="158" width="96" height="12" rx="6" fill="#FFFFFF"/>
+    </g>
+  </g>
+  <!-- 导航：对话 -->
+  <g transform="translate(112,772)">
+    <rect width="44" height="44" rx="10" fill="none"/>
+    <use href="#ic-chats" transform="translate(10,10)" stroke="#64748B"/>
+  </g>
+  <!-- 导航：下载（激活态） -->
+  <g transform="translate(112,824)">
+    <rect width="44" height="44" rx="10" fill="#DBEAFE"/>
+    <use href="#ic-download" transform="translate(10,10)" stroke="#2563EB"/>
+  </g>
+  <!-- 导航：脚本 -->
+  <g transform="translate(112,876)">
+    <use href="#ic-scripts" transform="translate(10,10)" stroke="#64748B"/>
+  </g>
+  <!-- 导航：日志 -->
+  <g transform="translate(112,928)">
+    <use href="#ic-logs" transform="translate(10,10)" stroke="#64748B"/>
+  </g>
+  <!-- 导航：设置 -->
+  <g transform="translate(112,980)">
+    <use href="#ic-settings" transform="translate(10,10)" stroke="#64748B"/>
+  </g>
+  <!-- 底部：账号 / 主题切换 -->
+  <g transform="translate(112,1352)">
+    <use href="#ic-account" transform="translate(10,10)" stroke="#64748B"/>
+  </g>
+  <g transform="translate(112,1404)">
+    <use href="#ic-moon" transform="translate(10,10)" stroke="#64748B"/>
+  </g>
+
+  <!-- 内容区：下载页 -->
+  <g font-family="'Segoe UI','Microsoft YaHei',system-ui,-apple-system,sans-serif">
+    <text x="198" y="760" font-size="26" font-weight="600" fill="#1E293B">下载</text>
+    <text x="198" y="790" font-size="15" fill="#64748B">2 个任务进行中 · 1 个已完成</text>
+    <!-- 新建任务按钮 -->
+    <rect x="742" y="738" width="148" height="42" rx="10" fill="#3B82F6"/>
+    <text x="816" y="765" font-size="16" fill="#FFFFFF" text-anchor="middle">＋ 新建任务</text>
+
+    <!-- 任务卡 1：下载中 76% -->
+    <g>
+      <rect x="198" y="816" width="692" height="118" rx="12" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5"/>
+      <circle cx="240" cy="862" r="20" fill="#DBEAFE"/>
+      <use href="#ic-download" transform="translate(228,850)" stroke="#2563EB"/>
+      <text x="276" y="858" font-size="17" font-weight="600" fill="#1E293B">旅行照片合集 · photos_2026.zip</text>
+      <text x="276" y="882" font-size="13" fill="#64748B">1.9 GB / 2.5 GB · 12.6 MB/s</text>
+      <text x="866" y="864" font-size="16" font-weight="600" fill="#2563EB" text-anchor="end">76%</text>
+      <rect x="222" y="906" width="644" height="8" rx="4" fill="#E2E8F0"/>
+      <rect x="222" y="906" width="489" height="8" rx="4" fill="url(#ps-lg)"/>
+    </g>
+
+    <!-- 任务卡 2：下载中 45% -->
+    <g>
+      <rect x="198" y="950" width="692" height="118" rx="12" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5"/>
+      <circle cx="240" cy="996" r="20" fill="#DBEAFE"/>
+      <use href="#ic-download" transform="translate(228,984)" stroke="#2563EB"/>
+      <text x="276" y="992" font-size="17" font-weight="600" fill="#1E293B">产品发布会实录 · keynote_final.mp4</text>
+      <text x="276" y="1016" font-size="13" fill="#64748B">3.4 GB / 7.5 GB · 9.8 MB/s</text>
+      <text x="866" y="998" font-size="16" font-weight="600" fill="#2563EB" text-anchor="end">45%</text>
+      <rect x="222" y="1040" width="644" height="8" rx="4" fill="#E2E8F0"/>
+      <rect x="222" y="1040" width="290" height="8" rx="4" fill="url(#ps-lg)"/>
+    </g>
+
+    <!-- 任务卡 3：已完成 -->
+    <g>
+      <rect x="198" y="1084" width="692" height="118" rx="12" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5"/>
+      <circle cx="240" cy="1130" r="20" fill="#DCFCE7"/>
+      <path d="M231 1130.5 237 1136.5 249 1123.5" fill="none" stroke="#16A34A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="276" y="1126" font-size="17" font-weight="600" fill="#1E293B">设计规范文档 · brand_guide.pdf</text>
+      <text x="276" y="1150" font-size="13" fill="#64748B">86 MB · 已完成</text>
+      <text x="866" y="1132" font-size="16" font-weight="600" fill="#16A34A" text-anchor="end">100%</text>
+      <rect x="222" y="1174" width="644" height="8" rx="4" fill="#DCFCE7"/>
+      <rect x="222" y="1174" width="644" height="8" rx="4" fill="#22C55E"/>
+    </g>
+
+    <!-- 任务卡 4：排队等待 -->
+    <g opacity="0.92">
+      <rect x="198" y="1218" width="692" height="118" rx="12" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5"/>
+      <circle cx="240" cy="1264" r="20" fill="#EDE9FE"/>
+      <path d="M240 1254.5v9.5l6.5 4.8" fill="none" stroke="#7C3AED" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="276" y="1260" font-size="17" font-weight="600" fill="#1E293B">播客节目合辑 · podcast_s02.zip</text>
+      <text x="276" y="1284" font-size="13" fill="#64748B">4.2 GB · 排队等待</text>
+      <text x="866" y="1266" font-size="16" font-weight="600" fill="#7C3AED" text-anchor="end">等待中</text>
+      <rect x="222" y="1308" width="644" height="8" rx="4" fill="#E2E8F0"/>
+    </g>
+  </g>
+
+  <!-- 底部飘浮媒体卡装饰（避开侧边栏底部图标，停靠于侧边栏中部留白区） -->
+  <g transform="translate(46,1120) rotate(-8)">
+    <rect width="92" height="66" rx="10" fill="#FFFFFF" opacity="0.95"/>
+    <circle cx="22" cy="20" r="8" fill="#60A5FA"/>
+    <path d="M10 52l18-20 14 13 10-9 26 16v2c0 4-3 8-8 8H18c-4 0-8-4-8-8Z" fill="#93C5FD"/>
+  </g>
+  <g transform="translate(902,1370) rotate(7)">
+    <rect width="80" height="60" rx="10" fill="#FFFFFF" opacity="0.9"/>
+    <path d="M30 16v18l16-9z" fill="#3B82F6"/>
+    <rect x="14" y="44" width="52" height="5" rx="2.5" fill="#BFDBFE"/>
+  </g>
+</svg>

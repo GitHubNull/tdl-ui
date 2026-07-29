@@ -1,3 +1,5 @@
+![tdl UI](img/promotional/readme-banner.svg)
+
 # tdl UI
 
 > 基于 [tdl](https://github.com/GitHubNull/tdl) 的 Telegram 媒体下载桌面客户端
@@ -21,6 +23,10 @@ tdl UI 是对命令行工具 tdl 的 GUI 化改造：复用其经过验证的下
 ## 界面预览
 
 > （截图占位：登录页 / 对话页 / 下载页 / 脚本页 / 设置页）
+
+<p align="center">
+  <img src="img/promotional/poster.png" width="420" alt="tdl UI 宣传海报" />
+</p>
 
 ## 安装
 

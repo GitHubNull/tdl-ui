@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>tdl UI 素材 QA 预览</title>
+<style>
+  body { margin: 0; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; background: #fff; }
+  .banner-wrap { width: 1280px; }
+  .banner-wrap img { display: block; width: 1280px; height: 320px; }
+  .grid { display: flex; gap: 24px; padding: 24px; align-items: center; flex-wrap: wrap; }
+  .light { background: #F8FAFC; color: #334155; }
+  .dark { background: #0F172A; color: #CBD5E1; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11px; }
+  .cell img { width: 32px; height: 32px; }
+  .cell.big img { width: 72px; height: 72px; }
+  h3 { margin: 12px 24px 0; font-size: 14px; }
+  .dark h3 { color: #E2E8F0; }
+</style>
+</head>
+<body>
+<div class="banner-wrap" id="banner"><img src="promotional/readme-banner.svg" alt="banner"></div>
+
+<div class="light" id="qa-light">
+<h3>浅色背景 - 导航 / 登录 / 状态图标</h3>
+<div class="grid">
+  <div class="cell"><img src="icons/navigation/nav-chats.svg">对话</div>
+  <div class="cell"><img src="icons/navigation/nav-download.svg">下载</div>
+  <div class="cell"><img src="icons/navigation/nav-scripts.svg">脚本</div>
+  <div class="cell"><img src="icons/navigation/nav-logs.svg">日志</div>
+  <div class="cell"><img src="icons/navigation/nav-settings.svg">设置</div>
+  <div class="cell"><img src="icons/navigation/nav-account.svg">账号</div>
+  <div class="cell"><img src="icons/navigation/nav-theme-light.svg">亮色</div>
+  <div class="cell"><img src="icons/navigation/nav-theme-dark.svg">暗色</div>
+  <div class="cell"><img src="icons/login/login-code.svg">验证码</div>
+  <div class="cell"><img src="icons/login/login-qrcode.svg">二维码</div>
+  <div class="cell"><img src="icons/login/login-desktop.svg">Desktop</div>
+  <div class="cell"><img src="icons/status/status-success.svg">成功</div>
+  <div class="cell"><img src="icons/status/status-error.svg">错误</div>
+  <div class="cell"><img src="icons/status/status-warning.svg">警告</div>
+  <div class="cell"><img src="icons/status/status-info.svg">信息</div>
+  <div class="cell"><img src="icons/status/status-downloading.svg">下载中</div>
+  <div class="cell"><img src="icons/status/status-paused.svg">暂停</div>
+  <div class="cell"><img src="icons/status/status-queued.svg">排队</div>
+  <div class="cell big"><img src="logos/logo-mark.svg">Logo</div>
+  <div class="cell big"><img src="logos/logo-mark-mono-dark.svg">单色深</div>
+  <div class="cell big"><img src="logos/app-icon.svg">应用图标</div>
+</div>
+<div class="grid">
+  <img src="logos/logo-horizontal-light.svg" style="height:60px">
+  <img src="illustrations/empty-tasks.svg" style="height:120px">
+  <img src="illustrations/empty-chats.svg" style="height:120px">
+</div>
+</div>
+
+<div class="dark" id="qa-dark" style="color:#CBD5E1">
+<h3>深色背景 - 同套图标（currentColor 适配）</h3>
+<div class="grid">
+  <div class="cell"><img src="icons/navigation/nav-chats.svg" style="filter:invert(0.85)">对话</div>
+  <div class="cell"><img src="icons/navigation/nav-download.svg" style="filter:invert(0.85)">下载</div>
+  <div class="cell"><img src="icons/navigation/nav-scripts.svg" style="filter:invert(0.85)">脚本</div>
+  <div class="cell"><img src="icons/navigation/nav-logs.svg" style="filter:invert(0.85)">日志</div>
+  <div class="cell"><img src="icons/navigation/nav-settings.svg" style="filter:invert(0.85)">设置</div>
+  <div class="cell"><img src="icons/navigation/nav-account.svg" style="filter:invert(0.85)">账号</div>
+  <div class="cell"><img src="icons/status/status-success.svg">成功</div>
+  <div class="cell"><img src="icons/status/status-error.svg">错误</div>
+  <div class="cell"><img src="icons/status/status-warning.svg">警告</div>
+  <div class="cell"><img src="icons/status/status-downloading.svg">下载中</div>
+  <div class="cell big"><img src="logos/logo-mark-mono-light.svg">单色浅</div>
+  <div class="cell big"><img src="logos/app-icon.svg">应用图标</div>
+</div>
+<div class="grid">
+  <img src="logos/logo-horizontal-dark.svg" style="height:60px">
+  <img src="illustrations/login-hero.svg" style="height:180px;background:#1E293B;border-radius:12px">
+</div>
+</div>
+</body>
+</html>

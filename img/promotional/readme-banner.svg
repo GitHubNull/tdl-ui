@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" width="1280" height="320" role="img" aria-labelledby="bn-t bn-d">
+  <title id="bn-t">tdl UI README 头图横幅</title>
+  <desc id="bn-d">深蓝渐变横幅，左侧为品牌标志与标语，右侧为纸飞机航迹与媒体文件下载视觉</desc>
+  <defs>
+    <linearGradient id="bn-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1E3A8A"/>
+      <stop offset="0.55" stop-color="#1D4ED8"/>
+      <stop offset="1" stop-color="#3B82F6"/>
+    </linearGradient>
+    <linearGradient id="bn-pl" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DBEAFE"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="320" rx="16" fill="url(#bn-bg)"/>
+
+  <!-- 背景装饰网点与光晕 -->
+  <circle cx="1120" cy="40" r="180" fill="#FFFFFF" opacity="0.05"/>
+  <circle cx="1010" cy="300" r="120" fill="#FFFFFF" opacity="0.05"/>
+  <g fill="#93C5FD" opacity="0.5">
+    <circle cx="700" cy="60" r="2.5"/>
+    <circle cx="780" cy="250" r="2"/>
+    <circle cx="960" cy="90" r="2.5"/>
+    <circle cx="1200" cy="200" r="2"/>
+    <circle cx="860" cy="180" r="1.8"/>
+  </g>
+
+  <!-- 左侧：Logo 符号 -->
+  <g transform="translate(72,88)">
+    <rect width="144" height="144" rx="32" fill="#FFFFFF" opacity="0.12"/>
+    <g transform="translate(22,14) scale(0.5)">
+      <path fill="#FFFFFF" d="M100 146 L52 50 L100 86 L148 50 Z"/>
+      <path fill="#BFDBFE" d="M100 146 L100 86 L148 50 Z"/>
+      <rect x="52" y="158" width="96" height="12" rx="6" fill="#FFFFFF"/>
+    </g>
+  </g>
+
+  <!-- 左侧：标题与标语 -->
+  <g font-family="'Segoe UI','Microsoft YaHei',system-ui,-apple-system,sans-serif">
+    <text x="256" y="152" font-size="64" font-weight="700" fill="#FFFFFF">tdl <tspan fill="#93C5FD">UI</tspan></text>
+    <text x="258" y="196" font-size="22" fill="#DBEAFE" opacity="0.95">跨平台 Telegram 下载工具 · Cross-platform Telegram Downloader</text>
+    <text x="258" y="232" font-size="15" fill="#BFDBFE" opacity="0.8">对话浏览 · 批量下载 · 脚本扩展 · 明暗主题</text>
+  </g>
+
+  <!-- 右侧：航迹与纸飞机 -->
+  <path d="M760 240 C 850 200, 950 150, 1060 110" fill="none" stroke="#BFDBFE" stroke-width="2.5" stroke-dasharray="2 10" stroke-linecap="round" opacity="0.8"/>
+  <g transform="translate(1042,58) rotate(14)">
+    <path fill="url(#bn-pl)" d="M40 84 L8 12 L40 40 L72 12 Z"/>
+    <path fill="#93C5FD" d="M40 84 L40 40 L72 12 Z"/>
+  </g>
+
+  <!-- 右侧：下载中的媒体文件卡片 -->
+  <g transform="translate(742,206) rotate(-6)">
+    <rect width="120" height="84" rx="12" fill="#FFFFFF" opacity="0.95"/>
+    <circle cx="26" cy="26" r="10" fill="#60A5FA"/>
+    <path d="M14 66l24-26 18 18 14-12 34 20v6c0 3-3 6-6 6H20c-3 0-6-3-6-6Z" fill="#93C5FD"/>
+  </g>
+  <g transform="translate(892,232) rotate(5)">
+    <rect width="104" height="72" rx="12" fill="#FFFFFF" opacity="0.9"/>
+    <path d="M40 20v22M30 32l10 10 10-10" fill="none" stroke="#2563EB" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="24" y="52" width="32" height="5" rx="2.5" fill="#2563EB"/>
+    <rect x="66" y="24" width="22" height="34" rx="4" fill="#DBEAFE"/>
+  </g>
+</svg>

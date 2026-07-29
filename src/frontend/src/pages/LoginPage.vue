@@ -23,11 +23,15 @@
     <div v-else class="panel-card">
       <Message v-if="auth.error" severity="error" class="mb-16">{{ auth.error }}</Message>
 
+      <div class="login-hero">
+        <img :src="loginHero" alt="" draggable="false" />
+      </div>
+
       <Tabs value="code">
         <TabList>
-          <Tab value="code"><i class="pi pi-mobile tab-icon" />验证码登录</Tab>
-          <Tab value="qr"><i class="pi pi-qrcode tab-icon" />二维码登录</Tab>
-          <Tab value="desktop"><i class="pi pi-desktop tab-icon" />Desktop 导入</Tab>
+          <Tab value="code"><AppIcon name="login-code" class="tab-icon" />验证码登录</Tab>
+          <Tab value="qr"><AppIcon name="login-qrcode" class="tab-icon" />二维码登录</Tab>
+          <Tab value="desktop"><AppIcon name="login-desktop" class="tab-icon" />Desktop 导入</Tab>
         </TabList>
         <TabPanels>
           <!-- 验证码登录 -->
@@ -116,6 +120,9 @@ import TabList from 'primevue/tablist'
 import Tab from 'primevue/tab'
 import TabPanels from 'primevue/tabpanels'
 import TabPanel from 'primevue/tabpanel'
+
+import AppIcon from '../components/AppIcon.vue'
+import loginHero from '../assets/illustrations/login-hero.svg'
 
 import { Auth } from '../api'
 import type { DesktopAccount } from '../types'
@@ -262,6 +269,22 @@ async function doLogout() {
 
 .tab-icon {
   margin-right: 8px;
+  width: 18px;
+  height: 18px;
+  vertical-align: -4px;
+}
+
+.login-hero {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.login-hero img {
+  width: 300px;
+  max-width: 100%;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .hint {

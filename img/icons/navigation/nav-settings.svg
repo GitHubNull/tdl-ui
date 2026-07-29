@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="nse-t">
+  <title id="nse-t">设置导航图标</title>
+  <path d="M18.43 10.52 L20.73 10.93 L20.73 13.07 L18.43 13.48 L17.60 15.50 L18.93 17.42 L17.42 18.93 L15.50 17.60 L13.48 18.43 L13.07 20.73 L10.93 20.73 L10.52 18.43 L8.50 17.60 L6.58 18.93 L5.07 17.42 L6.40 15.50 L5.57 13.48 L3.27 13.07 L3.27 10.93 L5.57 10.52 L6.40 8.50 L5.07 6.58 L6.58 5.07 L8.50 6.40 L10.52 5.57 L10.93 3.27 L13.07 3.27 L13.48 5.57 L15.50 6.40 L17.42 5.07 L18.93 6.58 L17.60 8.50 Z"/>
+  <circle cx="12" cy="12" r="2.6"/>
+</svg>

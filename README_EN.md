@@ -1,3 +1,5 @@
+![tdl UI](img/promotional/readme-banner.svg)
+
 # tdl UI
 
 > A Telegram media downloader desktop client based on [tdl](https://github.com/GitHubNull/tdl)
@@ -21,6 +23,10 @@ tdl UI is a GUI transformation of the CLI tool tdl: it reuses tdl's battle-teste
 ## Screenshots
 
 > (Placeholders: Login / Chats / Download / Scripts / Settings)
+
+<p align="center">
+  <img src="img/promotional/poster.png" width="420" alt="tdl UI promotional poster" />
+</p>
 
 ## Installation
 

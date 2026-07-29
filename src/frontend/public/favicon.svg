@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="ai-title ai-desc">
+  <title id="ai-title">tdl UI 应用图标</title>
+  <desc id="ai-desc">蓝色渐变圆角方形背板上的白色下行纸飞机与接收托盘</desc>
+  <defs>
+    <linearGradient id="ai-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="ai-hl" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <g id="backplate">
+    <rect x="0" y="0" width="512" height="512" rx="115" fill="url(#ai-bg)"/>
+    <rect x="0" y="0" width="512" height="256" rx="115" fill="url(#ai-hl)"/>
+  </g>
+  <g id="symbol">
+    <path fill="#FFFFFF" d="M256 366 L146 146 L256 228 L366 146 Z"/>
+    <path fill="#BFDBFE" d="M256 366 L256 228 L366 146 Z"/>
+    <rect x="146" y="394" width="220" height="28" rx="14" fill="#FFFFFF"/>
+  </g>
+</svg>

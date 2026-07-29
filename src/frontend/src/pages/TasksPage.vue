@@ -27,7 +27,7 @@
     </div>
 
     <div v-if="!tasks.tasks.length" class="empty-state panel-card">
-      <i class="pi pi-inbox" />
+      <img class="empty-illustration" :src="emptyTasks" alt="" draggable="false" />
       <p>暂无下载任务</p>
       <p class="mt-8">点击右上角「添加下载」创建第一个任务</p>
     </div>
@@ -169,6 +169,7 @@ import ProgressBar from 'primevue/progressbar'
 import Tag from 'primevue/tag'
 
 import NewTaskDialog from '../components/NewTaskDialog.vue'
+import emptyTasks from '../assets/illustrations/empty-tasks.svg'
 import { Download } from '../api'
 import type { TaskFile, TaskView } from '../types'
 import { useTasksStore } from '../stores/tasks'

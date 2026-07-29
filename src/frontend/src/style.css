@@ -53,16 +53,10 @@ body {
 .app-sidebar .brand {
   width: 40px;
   height: 40px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--p-primary-color);
-  color: var(--p-primary-contrast-color);
-  font-weight: 700;
-  font-size: 15px;
+  display: block;
   margin-bottom: 16px;
   user-select: none;
+  -webkit-user-drag: none;
 }
 
 .nav-item {
@@ -268,6 +262,15 @@ body {
   margin-bottom: 16px;
   display: block;
   color: var(--p-surface-400);
+}
+
+.empty-state .empty-illustration {
+  width: 200px;
+  max-width: 60%;
+  margin: 0 auto 16px;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .empty-state p {

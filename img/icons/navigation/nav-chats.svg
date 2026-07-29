@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="nc-t">
+  <title id="nc-t">对话导航图标</title>
+  <path d="M20 11.2c0 3.8-3.6 6.8-8 6.8-1 0-2-.15-2.9-.44L5 19l.85-3.05C4.7 14.75 4 13.05 4 11.2 4 7.4 7.6 4.4 12 4.4s8 3 8 6.8Z"/>
+  <circle cx="8.6" cy="11.2" r="0.4" fill="currentColor"/>
+  <circle cx="12" cy="11.2" r="0.4" fill="currentColor"/>
+  <circle cx="15.4" cy="11.2" r="0.4" fill="currentColor"/>
+</svg>
