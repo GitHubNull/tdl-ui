@@ -51,6 +51,28 @@ func DefaultSettings() LogSettings {
 	return LogSettings{}.WithDefaults()
 }
 
+// ensureWritableDir 确保目录可创建并可写（写入探针文件后删除，LOG-03）。
+func ensureWritableDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	probe := filepath.Join(dir, ".tdl-ui-write-test")
+	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
+		return err
+	}
+	_ = os.Remove(probe)
+	return nil
+}
+
+// fallbackLogDir 默认目录不可写时的回退位置：用户缓存目录（Windows 为 %LOCALAPPDATA%）。
+func fallbackLogDir() string {
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(base, "tdl-ui", "logs")
+}
+
 // WithDefaults 缺省/非法字段回填默认值，返回规范化副本。
 func (s LogSettings) WithDefaults() LogSettings {
 	switch s.Targets {

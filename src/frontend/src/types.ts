@@ -1,57 +1,27 @@
-// 与后端 Go 结构体一一对应的类型契约（JSON tag 命名）。
+// 类型单一事实来源为 wailsjs/go/models.ts（wails 生成，ARC-06/FE-03）；
+// 本文件仅做命名别名 + 补充 models.ts 没有的事件负载类型。
+import type { config, engine, logging, script, services } from '../wailsjs/go/models'
 
-/** logging.LogSettings */
-export interface LogSettings {
-  targets: 'file' | 'ui' | 'both'
-  level: 'debug' | 'info' | 'warn' | 'error'
-  dir: string
-  format: string
-  maxSizeMb: number
-  maxAgeDays: number
-  maxBackups: number
-}
+// ---- 生成类型别名（保持既有前端命名，不重复维护字段） ----
+export type Settings = config.Settings
+export type LogSettings = logging.LogSettings
+export type LogEntry = logging.LogEntry
+export type LogFileInfo = services.LogFileInfo
+export type LoginStatus = services.LoginStatus
+export type Selection = engine.Selection
+export type TaskOptions = engine.TaskOptions
+export type TaskView = engine.TaskView
+export type TaskFile = engine.TaskFile
+export type ScriptMeta = script.Meta
+export type ValidateResult = services.ValidateResult
+export type TestRunResult = services.TestRunResult
+export type DesktopAccount = services.DesktopAccount
+export type DialogView = services.Dialog
+export type MediaItem = services.MediaItem
+export type MediaQuery = services.MediaQuery
+export type MediaPage = services.MediaPage
 
-/** internal/config.Settings */
-export interface Settings {
-  proxy: string
-  downloadDir: string
-  template: string
-  threads: number
-  limit: number
-  poolSize: number
-  theme: 'light' | 'dark' | 'system'
-  cacheDir: string
-  loggedInUserId: number
-  loggedInUsername: string
-  log: LogSettings
-}
-
-/** logging.LogEntry（log:batch 事件负载元素） */
-export interface LogEntry {
-  seq: number
-  time: string
-  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | string
-  module: string
-  file: string
-  func: string
-  line: number
-  msg: string
-  text: string
-}
-
-/** services.LogFileInfo */
-export interface LogFileInfo {
-  name: string
-  size: number
-  modTime: number // unix 秒
-}
-
-/** services.LoginStatus */
-export interface LoginStatus {
-  loggedIn: boolean
-  userId: number
-  username: string
-}
+// ---- 事件负载（Wails 事件不生成绑定，与 internal/events/events.go 手工对齐） ----
 
 /** events.User */
 export interface LoginUser {
@@ -68,51 +38,6 @@ export interface LoginUpdate {
   error?: string
 }
 
-/** engine.Selection（按对话 + 消息 ID 直接选集下载） */
-export interface Selection {
-  dialogId: number
-  dialogType: string
-  messageIds: number[]
-}
-
-/** engine.TaskOptions */
-export interface TaskOptions {
-  urls: string[]
-  selections?: Selection[]
-  label?: string
-  dir: string
-  scriptName: string
-  template: string
-  rewriteExt: boolean
-  skipSame: boolean
-  group: boolean
-  restart: boolean
-}
-
-/** engine.TaskView（task:update 事件负载） */
-export interface TaskView {
-  id: string
-  urls: string[]
-  label?: string
-  dir: string
-  scriptName: string
-  status: 'queued' | 'running' | 'paused' | 'done' | 'failed' | 'canceled'
-  error?: string
-  total: number
-  finished: number
-  failed: number
-  fileCount: number
-  createdAt: string
-}
-
-/** engine.TaskFile（任务内登记的文件） */
-export interface TaskFile {
-  name: string
-  path: string
-  size: number
-  state: 'downloading' | 'done' | 'failed'
-}
-
 /** engine.FileEvent（task:file 事件负载） */
 export interface FileEvent {
   taskId: string
@@ -124,77 +49,4 @@ export interface FileEvent {
   downloaded: number
   state: 'downloading' | 'done' | 'failed'
   error?: string
-}
-
-/** script.Meta */
-export interface ScriptMeta {
-  name: string
-  size: number
-  updatedAt: string
-}
-
-/** services.ValidateResult */
-export interface ValidateResult {
-  ok: boolean
-  error?: string
-  funcs: string[]
-}
-
-/** services.TestRunResult */
-export interface TestRunResult {
-  ok: boolean
-  error?: string
-  sampleFile: string
-  filterKeep?: boolean
-  renameTo?: string
-}
-
-/** services.DesktopAccount */
-export interface DesktopAccount {
-  userId: string
-}
-
-/** services.Dialog */
-export interface DialogView {
-  id: number
-  type: 'private' | 'group' | 'channel'
-  title: string
-  username?: string
-  unreadCount: number
-  lastMessageAt?: number // unix 秒
-}
-
-/** services.MediaItem */
-export interface MediaItem {
-  dialogId: number
-  messageId: number
-  name: string
-  caption: string
-  size: number
-  mime: string
-  kind: 'video' | 'photo' | 'audio' | 'file'
-  date: number // unix 秒
-  width?: number // 像素宽（可缺）
-  height?: number // 像素高（可缺）
-  thumb?: string // 内嵌模糊占位图（data URI，可空）
-}
-
-/** services.MediaQuery */
-export interface MediaQuery {
-  dialogId: number
-  dialogType: string
-  offsetId: number
-  offsetDate: number // unix 秒；>0 且 offsetId=0 时从该日期附近开始（月份跳转）
-  limit: number
-  query: string
-  kinds: string[]
-  exts: string[]
-  minSize: number
-  maxSize: number
-}
-
-/** services.MediaPage */
-export interface MediaPage {
-  items: MediaItem[]
-  nextOffset: number // 0=没有更多
 }

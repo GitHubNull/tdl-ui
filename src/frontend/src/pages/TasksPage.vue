@@ -53,7 +53,7 @@
           text
           rounded
           v-tooltip.top="'暂停'"
-          @click="tasks.pause(t.id)"
+          @click="onPause(t.id)"
         />
         <Button
           v-if="t.status === 'paused'"
@@ -62,7 +62,7 @@
           text
           rounded
           v-tooltip.top="'恢复（断点续传）'"
-          @click="tasks.resume(t.id)"
+          @click="onResume(t.id)"
         />
         <Button
           v-if="t.status === 'running' || t.status === 'queued' || t.status === 'paused'"
@@ -71,7 +71,7 @@
           text
           rounded
           v-tooltip.top="'取消'"
-          @click="tasks.cancel(t.id)"
+          @click="onCancel(t.id)"
         />
         <Button
           v-if="isFinal(t.status)"
@@ -80,7 +80,7 @@
           text
           rounded
           v-tooltip.top="'移除记录'"
-          @click="tasks.remove(t.id)"
+          @click="onRemove(t.id)"
         />
         <Button
           v-if="isFinal(t.status)"
@@ -158,7 +158,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
 import Button from 'primevue/button'
@@ -171,6 +171,7 @@ import Tag from 'primevue/tag'
 import NewTaskDialog from '../components/NewTaskDialog.vue'
 import emptyTasks from '../assets/illustrations/empty-tasks.svg'
 import { Download } from '../api'
+import { fmtSize } from '../utils/format'
 import type { TaskFile, TaskView } from '../types'
 import { useTasksStore } from '../stores/tasks'
 
@@ -184,6 +185,22 @@ const expanded = reactive<Record<string, boolean>>({})
 const loadingFiles = reactive<Record<string, boolean>>({})
 const fileLists = reactive<Record<string, TaskFile[]>>({})
 const selectedPaths = reactive<Record<string, string[]>>({})
+
+// FE-25：任务被移除或重新运行（离开终态）时清理展开/文件列表状态，避免缓慢累积与陈旧列表
+watch(
+  () => tasks.tasks.map((t) => `${t.id}:${t.status}`),
+  () => {
+    const finalById = new Map(tasks.tasks.map((t) => [t.id, isFinal(t.status)]))
+    for (const key of Object.keys(expanded)) {
+      if (!finalById.get(key)) {
+        delete expanded[key]
+        delete loadingFiles[key]
+        delete fileLists[key]
+        delete selectedPaths[key]
+      }
+    }
+  },
+)
 
 const hasFinished = computed(() => tasks.tasks.some((t) => t.status === 'done'))
 
@@ -210,6 +227,38 @@ async function onOpenDir(id: string) {
     await tasks.openDir(id)
   } catch (e) {
     toast.add({ severity: 'error', summary: '打开目录失败', detail: String(e), life: 4000 })
+  }
+}
+
+async function onPause(id: string) {
+  try {
+    await tasks.pause(id)
+  } catch (e) {
+    toast.add({ severity: 'error', summary: '暂停失败', detail: String(e), life: 4000 })
+  }
+}
+
+async function onResume(id: string) {
+  try {
+    await tasks.resume(id)
+  } catch (e) {
+    toast.add({ severity: 'error', summary: '恢复失败', detail: String(e), life: 4000 })
+  }
+}
+
+async function onCancel(id: string) {
+  try {
+    await tasks.cancel(id)
+  } catch (e) {
+    toast.add({ severity: 'error', summary: '取消失败', detail: String(e), life: 4000 })
+  }
+}
+
+async function onRemove(id: string) {
+  try {
+    await tasks.remove(id)
+  } catch (e) {
+    toast.add({ severity: 'error', summary: '移除记录失败', detail: String(e), life: 4000 })
   }
 }
 
@@ -337,18 +386,6 @@ function taskPercent(t: TaskView) {
   if (t.status === 'done') return 100
   if (!t.total) return 0
   return Math.round(((t.finished + t.failed) / t.total) * 100)
-}
-
-function fmtSize(n: number) {
-  if (!n || n < 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let v = n
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
-  }
-  return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`
 }
 </script>
 

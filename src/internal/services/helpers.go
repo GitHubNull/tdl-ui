@@ -26,6 +26,7 @@ func openDirectory(dir string) error {
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		return errors.Errorf("目录不存在: %s", dir)
 	}
+	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
 		// dev 环境子进程的 PATH 可能不含系统目录，使用绝对路径调用 explorer。
@@ -33,10 +34,16 @@ func openDirectory(dir string) error {
 		if root := os.Getenv("SystemRoot"); root != "" {
 			explorer = filepath.Join(root, "explorer.exe")
 		}
-		return exec.Command(explorer, dir).Start()
+		cmd = exec.Command(explorer, dir)
 	case "darwin":
-		return exec.Command("open", dir).Start()
+		cmd = exec.Command("open", dir)
 	default:
-		return exec.Command("xdg-open", dir).Start()
+		cmd = exec.Command("xdg-open", dir)
 	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// SVC-11：回收子进程，避免 Unix 系上遗留 zombie
+	go func() { _ = cmd.Wait() }()
+	return nil
 }

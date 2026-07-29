@@ -165,7 +165,7 @@ func awaitErr(t *testing.T, fn func() error) error {
 // 回归：ready 返回错误（如未登录）后 ensureStarted 必须返回错误而非与收尾协程互锁卡死。
 func TestEnsureStartedErrorNoDeadlock(t *testing.T) {
 	s := &ChatService{
-		runClient: func(_ context.Context, ready chan<- error, _ <-chan chatJob) {
+		runClient: func(_ context.Context, ready chan<- error, _, _ <-chan chatJob) {
 			ready <- errNotLoggedIn
 		},
 	}
@@ -185,7 +185,7 @@ func TestEnsureStartedConnectTimeout(t *testing.T) {
 	defer func() { connectTimeout = old }()
 
 	s := &ChatService{
-		runClient: func(ctx context.Context, _ chan<- error, _ <-chan chatJob) {
+		runClient: func(ctx context.Context, _ chan<- error, _, _ <-chan chatJob) {
 			<-ctx.Done() // 模拟连接阶段永久阻塞，直到被取消
 		},
 	}
@@ -199,7 +199,7 @@ func TestEnsureStartedConnectTimeout(t *testing.T) {
 // 就绪后 invoke 能正常执行任务，Stop 后状态复位可重新启动。
 func TestEnsureStartedInvokeAndStop(t *testing.T) {
 	s := &ChatService{
-		runClient: func(ctx context.Context, ready chan<- error, jobs <-chan chatJob) {
+		runClient: func(ctx context.Context, ready chan<- error, jobs, _ <-chan chatJob) {
 			ready <- nil
 			for {
 				select {

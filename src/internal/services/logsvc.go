@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/go-faster/errors"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -16,6 +15,9 @@ import (
 )
 
 var logLog = logging.L("log")
+
+// defaultLogTailLines 读取日志文件尾部行数默认值（SVC-17）。
+const defaultLogTailLines = 5000
 
 // LogFileInfo 日志目录下的文件信息（供日志页历史文件列表）。
 type LogFileInfo struct {
@@ -53,7 +55,8 @@ func (s *LogService) ListLogFiles() ([]LogFileInfo, error) {
 	}
 	out := make([]LogFileInfo, 0, len(entries))
 	for _, e := range entries {
-		if e.IsDir() || !strings.Contains(e.Name(), ".log") {
+		// SVC-12：按扩展名精确匹配，避免 Contains 误匹配 foo.log.tmp 等
+		if e.IsDir() || filepath.Ext(e.Name()) != ".log" {
 			continue
 		}
 		info, err := e.Info()
@@ -73,7 +76,7 @@ func (s *LogService) ReadLogFile(name string, maxLines int) ([]string, error) {
 		return nil, errors.New("非法文件名")
 	}
 	if maxLines <= 0 {
-		maxLines = 5000
+		maxLines = defaultLogTailLines
 	}
 	path := filepath.Join(logging.CurrentDir(), name)
 	f, err := os.Open(path)

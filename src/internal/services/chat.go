@@ -88,34 +88,45 @@ type MediaPage struct {
 
 var errNotLoggedIn = errors.New("尚未登录或会话已失效，请在「账号」页重新登录或重新导入 Desktop 会话")
 
+// 查询超时与分页上限（SVC-17：集中具名常量便于调优）。
+const (
+	listDialogsTimeout = 120 * time.Second // 全量对话列表需多次分页往返
+	listMediaTimeout   = 90 * time.Second  // 单页媒体扫描（含苛刻过滤时的 maxScan 扫描）
+	mediaPageLimitMax  = 200               // 单页媒体条数上限
+)
+
 // connectTimeout 建连与授权校验的等待上限；var 便于测试缩短。
 var connectTimeout = 30 * time.Second
 
 // chatJob 投递给常驻客户端执行循环的查询任务。
 type chatJob struct {
+	// ctx 调用方上下文：worker 取任务后据此跳过已放弃的请求，并将取消传播到实际执行（SVC-01）
+	ctx  context.Context
 	fn   func(ctx context.Context, api *tg.Client) error
 	done chan error
 }
 
 // ChatService 对话与媒体查询。
 // 复用常驻 Telegram 连接（懒启动、断线自动重建），避免每次翻页重建连接的开销；
-// 所有 API 调用经 jobs 通道串行化，天然规避并发与频率问题。
+// 列表查询经 jobs 通道串行化，缩略图/预览图走独立的 thumbJobs 队列（小并发度），
+// 避免单张大图预览阻塞列表与其余缩略图加载（ARC-04）。
 type ChatService struct {
 	cfg *config.Manager
 	kv  kv.Storage
 
-	mu       sync.Mutex
-	running  bool
-	starting chan struct{} // 非 nil 表示建连进行中，关闭即结束
-	cancel   context.CancelFunc
-	jobs     chan chatJob
-	dead     chan struct{}
+	mu        sync.Mutex
+	running   bool
+	starting  chan struct{} // 非 nil 表示建连进行中，关闭即结束
+	cancel    context.CancelFunc
+	jobs      chan chatJob
+	thumbJobs chan chatJob
+	dead      chan struct{}
 
 	// 缩略图/预览图磁盘缓存（软件运行目录 cache/ 下）
 	thumbs *thumbCache
 
 	// runClient 建连并驱动任务循环，可注入以便测试；为 nil 时使用真实 Telegram 客户端。
-	runClient func(ctx context.Context, ready chan<- error, jobs <-chan chatJob)
+	runClient func(ctx context.Context, ready chan<- error, jobs, thumbJobs <-chan chatJob)
 }
 
 // NewChatService 创建对话服务。
@@ -123,7 +134,10 @@ func NewChatService(cfg *config.Manager, kvs kv.Storage) *ChatService {
 	return &ChatService{cfg: cfg, kv: kvs, thumbs: newThumbCache(func() string { return cfg.CacheDir() })}
 }
 
-// Stop 关闭常驻连接（登出后会话失效时调用），下次查询自动重建。
+// ClearThumbCache 清空缩略图/预览图磁盘缓存（设置页「清空缓存」入口，SVC-18）。
+func (s *ChatService) ClearThumbCache() error { return s.thumbs.Clear() }
+
+// Stop 关闭常驻连接（登出/重登后会话失效时调用），下次查询自动重建。
 func (s *ChatService) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -133,10 +147,30 @@ func (s *ChatService) Stop() {
 	}
 }
 
+// StopAndWait 停止常驻连接并等待执行协程退出（应用关闭编排用）。
+func (s *ChatService) StopAndWait(timeout time.Duration) {
+	s.mu.Lock()
+	if s.cancel != nil {
+		logChat.Infof("停止常驻 Telegram 连接")
+		s.cancel()
+	}
+	dead := s.dead
+	s.mu.Unlock()
+
+	if dead == nil {
+		return
+	}
+	select {
+	case <-dead:
+	case <-time.After(timeout):
+		logChat.Warnf("等待 Telegram 连接退出超时（%s），继续关闭流程", timeout)
+	}
+}
+
 // ListDialogs 返回当前账号的全部对话（私聊 / 群组 / 频道）。
 func (s *ChatService) ListDialogs() ([]Dialog, error) {
 	logChat.Debugf("开始拉取对话列表")
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), listDialogsTimeout)
 	defer cancel()
 
 	out := make([]Dialog, 0, 256)
@@ -168,11 +202,14 @@ func (s *ChatService) ListMedia(q MediaQuery) (*MediaPage, error) {
 	if q.DialogID == 0 {
 		return nil, errors.New("缺少对话 ID")
 	}
-	if q.Limit <= 0 || q.Limit > 200 {
+	if q.Limit <= 0 {
 		q.Limit = 50
 	}
+	if q.Limit > mediaPageLimitMax { // SVC-16：超限钳到上限而非重置为默认值
+		q.Limit = mediaPageLimitMax
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), listMediaTimeout)
 	defer cancel()
 
 	var page *MediaPage
@@ -201,17 +238,29 @@ func (s *ChatService) ListMedia(q MediaQuery) (*MediaPage, error) {
 
 // ---- 常驻客户端执行器 ----
 
-// invoke 将查询闭包投递到常驻客户端执行，带超时与断线感知。
+// invoke 将列表/查询闭包投递到串行队列执行，带超时与断线感知。
 func (s *ChatService) invoke(ctx context.Context, fn func(ctx context.Context, api *tg.Client) error) error {
+	return s.submit(ctx, false, fn)
+}
+
+// invokeThumb 将缩略图/预览图拉取投递到独立队列，不与列表查询互相阻塞。
+func (s *ChatService) invokeThumb(ctx context.Context, fn func(ctx context.Context, api *tg.Client) error) error {
+	return s.submit(ctx, true, fn)
+}
+
+func (s *ChatService) submit(ctx context.Context, thumb bool, fn func(ctx context.Context, api *tg.Client) error) error {
 	if err := s.ensureStarted(); err != nil {
 		return err
 	}
 
 	s.mu.Lock()
 	jobs, dead := s.jobs, s.dead
+	if thumb {
+		jobs = s.thumbJobs
+	}
 	s.mu.Unlock()
 
-	j := chatJob{fn: fn, done: make(chan error, 1)}
+	j := chatJob{ctx: ctx, fn: fn, done: make(chan error, 1)}
 	select {
 	case jobs <- j:
 	case <-dead:
@@ -264,6 +313,7 @@ func (s *ChatService) start() error {
 	logChat.Infof("启动常驻 Telegram 连接")
 	runCtx, cancel := context.WithCancel(context.Background())
 	jobs := make(chan chatJob)
+	thumbJobs := make(chan chatJob)
 	dead := make(chan struct{})
 	ready := make(chan error, 1)
 
@@ -274,7 +324,7 @@ func (s *ChatService) start() error {
 
 	go func() {
 		defer cancel()
-		run(runCtx, ready, jobs)
+		run(runCtx, ready, jobs, thumbJobs)
 
 		// 先宣告退出再抢锁复位，确保任何等待 dead 的一方不会与本协程互锁
 		close(dead)
@@ -320,14 +370,16 @@ func (s *ChatService) start() error {
 	s.running = true
 	s.cancel = cancel
 	s.jobs = jobs
+	s.thumbJobs = thumbJobs
 	s.dead = dead
 	logChat.Infof("Telegram 连接就绪")
 	return nil
 }
 
-// runTelegramClient 真实客户端：建连 → 校验登录态 → 串行执行查询任务直到 ctx 取消。
+// runTelegramClient 真实客户端：建连 → 校验登录态 → 执行查询任务直到 ctx 取消。
+// 列表查询单 worker 串行；缩略图队列 2 个 worker，单张大图预览最多占用一个。
 // 就绪前的任何错误都会写入 ready，保证调用方能拿到具体原因。
-func (s *ChatService) runTelegramClient(ctx context.Context, ready chan<- error, jobs <-chan chatJob) {
+func (s *ChatService) runTelegramClient(ctx context.Context, ready chan<- error, jobs, thumbJobs <-chan chatJob) {
 	kvd, err := s.kv.Open(engine.Namespace)
 	if err != nil {
 		ready <- errors.Wrap(err, "open kv")
@@ -356,14 +408,31 @@ func (s *ChatService) runTelegramClient(ctx context.Context, ready chan<- error,
 		}
 		ready <- nil
 
-		for {
-			select {
-			case j := <-jobs:
-				j.done <- j.fn(ctx, c.API())
-			case <-ctx.Done():
-				return nil
+		// worker 消费指定队列：跳过调用方已放弃的任务，并把调用方取消传播到实际执行（SVC-01）
+		worker := func(queue <-chan chatJob) {
+			for {
+				select {
+				case j := <-queue:
+					if j.ctx != nil && j.ctx.Err() != nil {
+						j.done <- j.ctx.Err() // 调用方已超时/放弃，不再消耗 API 配额
+						continue
+					}
+					jctx, jcancel := mergeContext(ctx, j.ctx)
+					j.done <- j.fn(jctx, c.API())
+					jcancel()
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); worker(thumbJobs) }()
+		go func() { defer wg.Done(); worker(thumbJobs) }()
+		worker(jobs)
+		wg.Wait() // 确保所有 worker 退出后再关闭客户端
+		return nil
 	})
 	if err != nil {
 		// 就绪前建连失败（如直连被墙/代理不可用）：尽力把原因送给等待方
@@ -372,6 +441,16 @@ func (s *ChatService) runTelegramClient(ctx context.Context, ready chan<- error,
 		default:
 		}
 	}
+}
+
+// mergeContext 返回同时受运行 ctx 与调用方 ctx 取消控制的派生 ctx。
+func mergeContext(base, caller context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(base)
+	if caller == nil {
+		return ctx, cancel
+	}
+	stop := context.AfterFunc(caller, cancel)
+	return ctx, func() { stop(); cancel() }
 }
 
 // ---- 对话列表 ----
@@ -430,6 +509,12 @@ func fetchDialogs(ctx context.Context, api *tg.Client, manager *peers.Manager) (
 		entities := newEntities(users, chats)
 		messageMap := newMessageMap(msgSlice)
 
+		// SVC-05：整页 users/chats 一次性批量落盘 access hash（单次 kv 事务），
+		// 失败记日志，后续 ListMedia 解析 peer 失败时可从此追溯根因。
+		if err := manager.Apply(ctx, users, chats); err != nil {
+			logChat.Warnf("缓存对话 access hash 失败: %v", err)
+		}
+
 		for _, dc := range dialogsSlice {
 			dialog, ok := dc.(*tg.Dialog)
 			if !ok {
@@ -449,9 +534,6 @@ func fetchDialogs(ctx context.Context, api *tg.Client, manager *peers.Manager) (
 			if d == nil { // 失效或不支持的对话，跳过
 				continue
 			}
-
-			// 缓存 access hash，供 ListMedia 解析输入 peer
-			_ = applyDialogPeers(ctx, manager, entities, key.id)
 
 			result = append(result, *d)
 		}
@@ -596,24 +678,6 @@ func nextOffsetPeer(entities peer.Entities, p tg.PeerClass) (tg.InputPeerClass, 
 		}
 	}
 	return nil, false
-}
-
-// applyDialogPeers 把实体写入 peers 存储（缓存 access hash）。
-func applyDialogPeers(ctx context.Context, manager *peers.Manager, entities peer.Entities, id int64) error {
-	users := make([]tg.UserClass, 0, 1)
-	if u, ok := entities.User(id); ok {
-		users = append(users, u)
-	}
-
-	chats := make([]tg.ChatClass, 0, 1)
-	if c, ok := entities.Chat(id); ok {
-		chats = append(chats, c)
-	}
-	if c, ok := entities.Channel(id); ok {
-		chats = append(chats, c)
-	}
-
-	return manager.Apply(ctx, users, chats)
 }
 
 func visibleName(first, last string) string {

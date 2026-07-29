@@ -12,7 +12,7 @@ import (
 const (
 	// Login 登录流程事件，payload 见 LoginUpdate
 	Login = "login:update"
-	// TaskUpdate 任务级状态事件，payload 见 TaskUpdate
+	// Task 任务级状态事件，payload 为引擎层的任务快照
 	Task = "task:update"
 	// TaskFile 文件级进度事件，payload 见 FileUpdate
 	TaskFile = "task:file"
@@ -50,6 +50,13 @@ func (e *Emitter) Bind(ctx context.Context) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.ctx = ctx
+}
+
+// Unbind 在 OnShutdown 中解绑运行时上下文，后续 Emit 恢复静默丢弃语义（SVC-19）。
+func (e *Emitter) Unbind() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.ctx = nil
 }
 
 // Emit 发射事件；未绑定上下文时静默忽略。

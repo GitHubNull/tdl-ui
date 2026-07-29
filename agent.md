@@ -22,7 +22,7 @@ tdl UI：基于 Wails v2 的 Telegram 媒体下载桌面客户端，复用 tdl�
 
 **必须遵守：**
 
-1. `ref/tdl` 是 Git 子模块，**任何情况下不得修改其中文件**；仅允许 `git submodule update --remote` 同步上游。需要改动 tdl 行为时：在 `src/internal/` 复制改写（参考 `src/internal/engine/` 对 `ref/tdl/app/dl` 的改写）。
+1. `ref/tdl` 是 Git 子模块，**任何情况下不得修改其中文件**；仅允许 `git submodule update --remote` 同步上游。需要改动 tdl 行为时：在 `src/internal/` 复制改写（参考 `src/internal/engine/` 对 `ref/tdl/app/dl` 的改写）。干净 clone 后构建前必须先执行 `git submodule update --init`（ARC-05：`src/go.mod` 的 replace 指向此子模块，require 版本号仅作记录）；submodule commit 变更必须随本仓库同一提交固化。
 2. 所有源代码放 `src/`，所有临时文件放 `tmp/`。
 3. 提交代码使用 **smart-commit** 技能，禁止手动 `git commit`。
 

@@ -1,5 +1,6 @@
 <template>
   <div class="page">
+    <ConfirmDialog />
     <div class="page-header">
       <h1>脚本</h1>
       <p>用 Go 语法编写过滤 / 命名脚本与任务生命周期钩子（Yaegi 解释执行）</p>
@@ -75,9 +76,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useToast } from 'primevue/usetoast'
+import { useConfirm } from 'primevue/useconfirm'
 import Button from 'primevue/button'
+import ConfirmDialog from 'primevue/confirmdialog'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Textarea from 'primevue/textarea'
@@ -87,6 +90,7 @@ import { useScriptsStore } from '../stores/scripts'
 
 const scripts = useScriptsStore()
 const toast = useToast()
+const confirm = useConfirm()
 
 const currentName = ref('')
 const source = ref('')
@@ -94,31 +98,58 @@ const source = ref('')
 const editing = ref(false)
 const result = ref<{ ok: boolean; text: string } | null>(null)
 
-async function newScript() {
-  currentName.value = ''
-  editing.value = true
-  result.value = null
-  try {
-    source.value = await Script.starterTemplate()
-  } catch {
-    source.value = 'package main\n'
+// FE-12：追踪未保存修改，切换/新建前弹确认，避免静默丢失
+const savedSource = ref('')
+const dirty = computed(() => source.value !== savedSource.value)
+
+function confirmDiscard(onAccept: () => void) {
+  if (!dirty.value) {
+    onAccept()
+    return
   }
+  confirm.require({
+    message: '当前编辑器有未保存的修改，继续将丢失这些改动。',
+    header: '未保存的修改',
+    icon: 'pi pi-exclamation-triangle',
+    acceptLabel: '放弃修改',
+    rejectLabel: '取消',
+    acceptProps: { severity: 'danger' },
+    accept: onAccept,
+  })
 }
 
-async function open(name: string) {
-  try {
-    source.value = await Script.read(name)
-    currentName.value = name
-    editing.value = false
+function newScript() {
+  confirmDiscard(async () => {
+    currentName.value = ''
+    editing.value = true
     result.value = null
-  } catch (e: any) {
-    toast.add({ severity: 'error', summary: '读取失败', detail: String(e), life: 4000 })
-  }
+    try {
+      source.value = await Script.starterTemplate()
+    } catch {
+      source.value = 'package main\n'
+    }
+    savedSource.value = source.value
+  })
+}
+
+function open(name: string) {
+  confirmDiscard(async () => {
+    try {
+      source.value = await Script.read(name)
+      savedSource.value = source.value
+      currentName.value = name
+      editing.value = false
+      result.value = null
+    } catch (e: any) {
+      toast.add({ severity: 'error', summary: '读取失败', detail: String(e), life: 4000 })
+    }
+  })
 }
 
 async function save() {
   try {
     await Script.save(currentName.value, source.value)
+    savedSource.value = source.value
     editing.value = false
     await scripts.refresh()
     toast.add({ severity: 'success', summary: '已保存', detail: currentName.value, life: 2500 })
@@ -127,28 +158,50 @@ async function save() {
   }
 }
 
-async function remove() {
-  try {
-    await Script.remove(currentName.value)
-    currentName.value = ''
-    source.value = ''
-    result.value = null
-    await scripts.refresh()
-    toast.add({ severity: 'info', summary: '已删除', life: 2500 })
-  } catch (e: any) {
-    toast.add({ severity: 'error', summary: '删除失败', detail: String(e), life: 5000 })
-  }
+function remove() {
+  // FE-12：删除不可恢复，与 Tasks/Settings 页一致走 ConfirmDialog
+  confirm.require({
+    message: `确定删除脚本「${currentName.value}」？此操作不可恢复。`,
+    header: '删除脚本',
+    icon: 'pi pi-exclamation-triangle',
+    acceptLabel: '删除',
+    rejectLabel: '取消',
+    acceptProps: { severity: 'danger' },
+    accept: async () => {
+      try {
+        await Script.remove(currentName.value)
+        currentName.value = ''
+        source.value = ''
+        savedSource.value = ''
+        result.value = null
+        await scripts.refresh()
+        toast.add({ severity: 'info', summary: '已删除', life: 2500 })
+      } catch (e: any) {
+        toast.add({ severity: 'error', summary: '删除失败', detail: String(e), life: 5000 })
+      }
+    },
+  })
 }
 
 async function validate() {
-  const r = await Script.validate(source.value)
-  result.value = r.ok
-    ? { ok: true, text: `校验通过，检测到契约函数：${r.funcs.length ? r.funcs.join(', ') : '（无）'}` }
-    : { ok: false, text: r.error ?? '校验失败' }
+  try {
+    const r = await Script.validate(source.value)
+    result.value = r.ok
+      ? { ok: true, text: `校验通过，检测到契约函数：${r.funcs.length ? r.funcs.join(', ') : '（无）'}` }
+      : { ok: false, text: r.error ?? '校验失败' }
+  } catch (e) {
+    result.value = { ok: false, text: `校验调用失败：${String(e)}` }
+  }
 }
 
 async function testRun() {
-  const r = await Script.testRun(source.value)
+  let r
+  try {
+    r = await Script.testRun(source.value)
+  } catch (e) {
+    result.value = { ok: false, text: `试运行调用失败：${String(e)}` }
+    return
+  }
   if (!r.ok) {
     result.value = { ok: false, text: r.error ?? '试运行失败' }
     return

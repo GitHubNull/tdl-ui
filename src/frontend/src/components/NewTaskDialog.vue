@@ -86,6 +86,7 @@ import Textarea from 'primevue/textarea'
 
 import { Download } from '../api'
 import type { Selection } from '../types'
+import { engine } from '../../wailsjs/go/models'
 import { useScriptsStore } from '../stores/scripts'
 import { useSettingsStore } from '../stores/settings'
 
@@ -142,18 +143,20 @@ async function create() {
     const selections: Selection[] = sel
       ? [{ dialogId: sel.dialogId, dialogType: sel.dialogType, messageIds: sel.messageIds }]
       : []
-    await Download.createTask({
-      urls: sel ? [] : urlList.value,
-      selections,
-      label: sel ? `${sel.title} × ${sel.messageIds.length} 个文件` : '',
-      dir: dir.value,
-      scriptName: scriptName.value ?? '',
-      template: '',
-      rewriteExt: rewriteExt.value,
-      skipSame: skipSame.value,
-      group: group.value,
-      restart: false,
-    })
+    await Download.createTask(
+      engine.TaskOptions.createFrom({
+        urls: sel ? [] : urlList.value,
+        selections,
+        label: sel ? `${sel.title} × ${sel.messageIds.length} 个文件` : '',
+        dir: dir.value,
+        scriptName: scriptName.value ?? '',
+        template: '',
+        rewriteExt: rewriteExt.value,
+        skipSame: skipSame.value,
+        group: group.value,
+        restart: false,
+      }),
+    )
     urls.value = ''
     emit('created')
     close()

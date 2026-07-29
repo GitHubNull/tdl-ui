@@ -17,20 +17,13 @@
           size="small"
           @before-show="loadFiles"
         />
-        <div class="search-box grow">
-          <InputText
-            v-model="query"
-            placeholder="搜索日志"
-            class="w-full"
-            size="small"
-            :invalid="!!regexError"
-          />
-          <i
-            class="search-icon"
-            :class="query ? 'pi pi-times clearable' : 'pi pi-search'"
-            @click="query && (query = '')"
-          />
-        </div>
+        <SearchBox
+          v-model="query"
+          placeholder="搜索日志"
+          class="grow"
+          size="small"
+          :invalid="!!regexError"
+        />
         <ToggleButton v-model="useRegex" on-label=".*" off-label=".*" size="small" v-tooltip.top="'正则表达式'" />
         <ToggleButton v-model="caseSensitive" on-label="Aa" off-label="Aa" size="small" v-tooltip.top="'区分大小写'" />
         <ToggleButton v-model="autoJump" on-label="跳转" off-label="跳转" size="small" v-tooltip.top="'自动跳转到匹配日志'" />
@@ -86,7 +79,7 @@
           <template #item="{ item }">
             <div class="log-row">
               <span class="log-gutter" :style="{ minWidth: gutterWidth }">{{ item.num }}</span>
-              <!-- eslint-disable-next-line vue/no-v-html -->
+              <!-- item.html 由本页 escapeHtml 转义后拼接，v-html 安全 -->
               <span class="log-line" v-html="item.html" />
             </div>
           </template>
@@ -104,13 +97,14 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
-import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import SelectButton from 'primevue/selectbutton'
 import ToggleButton from 'primevue/togglebutton'
 import VirtualScroller from 'primevue/virtualscroller'
 
+import SearchBox from '../components/SearchBox.vue'
 import { LogApi } from '../api'
+import { fmtSize } from '../utils/format'
 import { useLogsStore } from '../stores/logs'
 import type { LogFileInfo } from '../types'
 
@@ -142,8 +136,11 @@ watch(source, async (name) => {
     return
   }
   try {
-    historyLines.value = (await LogApi.readLogFile(name, 5000)) ?? []
+    const lines = (await LogApi.readLogFile(name, 5000)) ?? []
+    if (source.value !== name) return // 已切换到其他文件：丢弃慢回的旧响应，防乱序覆盖
+    historyLines.value = lines
   } catch (e) {
+    if (source.value !== name) return
     toast.add({ severity: 'error', summary: '读取日志文件失败', detail: String(e), life: 4000 })
     historyLines.value = []
   }
@@ -157,24 +154,32 @@ const autoJump = ref(true)
 const levelOptions = ['DEBUG', 'INFO', 'WARN', 'ERROR']
 const levels = ref<string[]>([...levelOptions])
 
-const regexError = ref('')
+// FE-23：搜索输入 200ms 防抖，避免每敲一字符对全量日志重算
+const QUERY_DEBOUNCE_MS = 200
+const debouncedQuery = ref('')
+let queryTimer: ReturnType<typeof setTimeout> | undefined
+watch(query, (q) => {
+  clearTimeout(queryTimer)
+  queryTimer = setTimeout(() => {
+    debouncedQuery.value = q
+  }, QUERY_DEBOUNCE_MS)
+})
 
-/** 编译搜索匹配器；正则非法时返回 null（不过滤）并记录错误。 */
-const matcher = computed<RegExp | null>(() => {
-  regexError.value = ''
-  const q = query.value
-  if (!q) return null
+// FE-22：编译结果与错误信息均为纯 computed，不在 computed 内写状态
+const compiled = computed<{ re: RegExp | null; error: string }>(() => {
+  const q = debouncedQuery.value
+  if (!q) return { re: null, error: '' }
   const flags = caseSensitive.value ? 'g' : 'gi'
   try {
-    return new RegExp(useRegex.value ? q : escapeRegExp(q), flags)
+    return { re: new RegExp(useRegex.value ? q : escapeRegExp(q), flags), error: '' }
   } catch (e) {
-    if (useRegex.value) {
-      regexError.value = e instanceof Error ? e.message : String(e)
-      return null
-    }
-    return null
+    return { re: null, error: useRegex.value ? (e instanceof Error ? e.message : String(e)) : '' }
   }
 })
+
+/** 搜索匹配器；正则非法时为 null（不过滤）。 */
+const matcher = computed<RegExp | null>(() => compiled.value.re)
+const regexError = computed(() => compiled.value.error)
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -337,12 +342,6 @@ async function openDir() {
   } catch (e) {
     toast.add({ severity: 'error', summary: '打开日志目录失败', detail: String(e), life: 4000 })
   }
-}
-
-function fmtSize(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 </script>
 

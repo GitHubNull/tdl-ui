@@ -1,7 +1,9 @@
 package logging
 
 import (
+	"fmt"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,6 +47,8 @@ type sink struct {
 	enab     zapcore.LevelEnabler
 	stopCh   chan struct{}
 	stopOnce sync.Once
+	// fileErrLogged 首次文件写失败已告警，避免每条都刷（LOG-03）；reconfigure 时重置
+	fileErrLogged bool
 }
 
 func newSink(enab zapcore.LevelEnabler) *sink {
@@ -67,8 +71,20 @@ func (s *sink) reconfigure(cfg LogSettings) {
 		_ = s.file.Close()
 		s.file = nil
 	}
+	s.fileErrLogged = false
 	s.settings = cfg
 	if cfg.fileEnabled() {
+		// LOG-03：目录可写探测；Program Files 等只读位置回退到用户缓存目录，
+		// 并向 UI ring 写一条 WARN，避免文件日志整体静默失效
+		if err := ensureWritableDir(cfg.Dir); err != nil {
+			if fallback := fallbackLogDir(); fallback != "" && ensureWritableDir(fallback) == nil {
+				s.noteLocked("WARN", fmt.Sprintf("日志目录不可写（%s: %v），已回退到 %s", cfg.Dir, err, fallback))
+				cfg.Dir = fallback
+				s.settings = cfg
+			} else {
+				s.noteLocked("WARN", fmt.Sprintf("日志目录不可写（%s: %v），文件日志可能失效", cfg.Dir, err))
+			}
+		}
 		s.file = &lumberjack.Logger{
 			Filename:   filepath.Join(cfg.Dir, FileName),
 			MaxSize:    cfg.MaxSizeMB,
@@ -98,7 +114,13 @@ func (s *sink) recent() []LogEntry {
 
 func (s *sink) Enabled(lvl zapcore.Level) bool { return s.enab.Enabled(lvl) }
 
-func (s *sink) With([]zapcore.Field) zapcore.Core { return s }
+// With 返回记住绑定字段的包装 core，写入时与调用点字段合并（LOG-01）。
+func (s *sink) With(fields []zapcore.Field) zapcore.Core {
+	if len(fields) == 0 {
+		return s
+	}
+	return &fieldedSink{sink: s, fields: fields}
+}
 
 func (s *sink) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
 	if s.Enabled(ent.Level) {
@@ -107,9 +129,8 @@ func (s *sink) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.Check
 	return ce
 }
 
-func (s *sink) Write(ent zapcore.Entry, _ []zapcore.Field) error {
+func (s *sink) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	s.seq++
 	e := LogEntry{
@@ -120,14 +141,10 @@ func (s *sink) Write(ent zapcore.Entry, _ []zapcore.Field) error {
 		File:   filepath.Base(ent.Caller.File),
 		Func:   shortFunc(ent.Caller.Function),
 		Line:   ent.Caller.Line,
-		Msg:    ent.Message,
+		Msg:    appendFields(ent.Message, fields),
 	}
 	e.Text = formatEntry(s.settings.Format, e)
-
-	// 文件目标：写失败静默降级，不影响主流程
-	if s.file != nil {
-		_, _ = s.file.Write([]byte(e.Text + "\n"))
-	}
+	file := s.file
 
 	// 环形缓冲始终写入（供日志页初始加载），事件推送按 UI 目标开关
 	if len(s.ring) >= ringCap {
@@ -137,12 +154,82 @@ func (s *sink) Write(ent zapcore.Entry, _ []zapcore.Field) error {
 	if s.settings.uiEnabled() && s.emit != nil {
 		s.pending = append(s.pending, e)
 	}
+	s.mu.Unlock()
+
+	// LOG-02：文件写移出临界区，同步轮转（rename+新建）不再阻塞全部日志调用；
+	// lumberjack 自身并发安全。写失败首次告警（LOG-03）
+	if file != nil {
+		if _, err := file.Write([]byte(e.Text + "\n")); err != nil {
+			s.noteFileError(err)
+		}
+	}
 	return nil
+}
+
+// noteFileError 首次文件写失败时向 UI ring 记一条 WARN（LOG-03），后续不再重复。
+func (s *sink) noteFileError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.fileErrLogged {
+		return
+	}
+	s.fileErrLogged = true
+	s.noteLocked("WARN", fmt.Sprintf("日志文件写入失败（后续错误不再提示）: %v", err))
+}
+
+// noteLocked 在持有 s.mu 时向 ring/pending 追加一条 logging 模块自身的告警。
+func (s *sink) noteLocked(level, msg string) {
+	s.seq++
+	e := LogEntry{
+		Seq:    s.seq,
+		Time:   time.Now().Format(TimeLayout),
+		Level:  level,
+		Module: "logging",
+		Msg:    msg,
+	}
+	e.Text = formatEntry(s.settings.Format, e)
+	if len(s.ring) >= ringCap {
+		s.ring = s.ring[1:]
+	}
+	s.ring = append(s.ring, e)
+	if s.settings.uiEnabled() && s.emit != nil {
+		s.pending = append(s.pending, e)
+	}
 }
 
 func (s *sink) Sync() error {
 	s.flush()
 	return nil
+}
+
+// fieldedSink 携带 With 绑定字段的轻量包装 core，Write 时把绑定字段与调用点字段合并后交给底层 sink。
+type fieldedSink struct {
+	*sink
+	fields []zapcore.Field
+}
+
+func (f *fieldedSink) With(fields []zapcore.Field) zapcore.Core {
+	if len(fields) == 0 {
+		return f
+	}
+	merged := make([]zapcore.Field, 0, len(f.fields)+len(fields))
+	merged = append(merged, f.fields...)
+	merged = append(merged, fields...)
+	return &fieldedSink{sink: f.sink, fields: merged}
+}
+
+func (f *fieldedSink) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	if f.Enabled(ent.Level) {
+		return ce.AddCore(ent, f)
+	}
+	return ce
+}
+
+func (f *fieldedSink) Write(ent zapcore.Entry, fields []zapcore.Field) error {
+	merged := make([]zapcore.Field, 0, len(f.fields)+len(fields))
+	merged = append(merged, f.fields...)
+	merged = append(merged, fields...)
+	return f.sink.Write(ent, merged)
 }
 
 // close 停止推送循环并关闭文件。
@@ -196,6 +283,33 @@ func formatEntry(format string, e LogEntry) string {
 		"{line}", strconv.Itoa(e.Line),
 		"{msg}", e.Msg,
 	).Replace(format)
+}
+
+// appendFields 将结构化字段渲染为 " {k=v ...}" 追加到消息文本（键名排序保证输出稳定）。
+func appendFields(msg string, fields []zapcore.Field) string {
+	if len(fields) == 0 {
+		return msg
+	}
+	enc := zapcore.NewMapObjectEncoder()
+	for i := range fields {
+		fields[i].AddTo(enc)
+	}
+	keys := make([]string, 0, len(enc.Fields))
+	for k := range enc.Fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString(msg)
+	b.WriteString(" {")
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		fmt.Fprintf(&b, "%s=%v", k, enc.Fields[k])
+	}
+	b.WriteByte('}')
+	return b.String()
 }
 
 // levelText zap 级别转大写文本。

@@ -2,6 +2,12 @@ import { defineStore } from 'pinia'
 import { Download, EVENT_TASK, EVENT_TASK_FILE, on } from '../api'
 import type { FileEvent, TaskView } from '../types'
 
+// FE-17：保存事件取消函数，HMR 重建模块时注销旧回调，避免事件双触发
+const unsubs: Array<() => void> = []
+import.meta.hot?.dispose(() => {
+  unsubs.splice(0).forEach((off) => off())
+})
+
 /** 下载任务列表与实时进度。 */
 export const useTasksStore = defineStore('tasks', {
   state: () => ({
@@ -18,8 +24,8 @@ export const useTasksStore = defineStore('tasks', {
       if (this.inited) return
       this.inited = true
 
-      on<TaskView>(EVENT_TASK, (t) => this.upsert(t))
-      on<FileEvent>(EVENT_TASK_FILE, (f) => this.onFile(f))
+      unsubs.push(on<TaskView>(EVENT_TASK, (t) => this.upsert(t)))
+      unsubs.push(on<FileEvent>(EVENT_TASK_FILE, (f) => this.onFile(f)))
       await this.refresh()
     },
     async refresh() {

@@ -53,7 +53,7 @@
                 <label for="code">验证码</label>
                 <InputText id="code" v-model="code" placeholder="Telegram 收到的验证码" autofocus />
               </div>
-              <Button label="提交验证码" icon="pi pi-check" @click="submitCode" />
+              <Button label="提交验证码" icon="pi pi-check" :loading="submitting" @click="submitCode" />
             </template>
 
             <PasswordStep v-if="auth.stage === 'need_password'" @submit="submitPassword" />
@@ -134,6 +134,7 @@ const toast = useToast()
 const phone = ref('')
 const code = ref('')
 const busy = ref(false)
+const submitting = ref(false)
 
 // 二步验证密码输入子组件（三处复用）
 const PasswordStep = defineComponent({
@@ -165,18 +166,30 @@ async function startCode() {
   try {
     await auth.startCodeLogin(phone.value)
   } catch (e: any) {
+    // 出错复位由 store action 内部处理（FE-18）
     toast.add({ severity: 'error', summary: '登录失败', detail: String(e), life: 5000 })
-    auth.stage = 'idle'
   }
 }
 
-function submitCode() {
-  Auth.submitCode(code.value)
-  code.value = ''
+async function submitCode() {
+  submitting.value = true
+  try {
+    await Auth.submitCode(code.value)
+    // 提交成功才清空；验证码错误时保留输入供用户修改重试
+    code.value = ''
+  } catch (e: any) {
+    toast.add({ severity: 'error', summary: '提交验证码失败', detail: String(e?.message ?? e), life: 5000 })
+  } finally {
+    submitting.value = false
+  }
 }
 
-function submitPassword(pwd: string) {
-  Auth.submitPassword(pwd)
+async function submitPassword(pwd: string) {
+  try {
+    await Auth.submitPassword(pwd)
+  } catch (e: any) {
+    toast.add({ severity: 'error', summary: '提交密码失败', detail: String(e?.message ?? e), life: 5000 })
+  }
 }
 
 // ---- 二维码 ----
@@ -187,7 +200,6 @@ async function startQR() {
     await auth.startQRLogin()
   } catch (e: any) {
     toast.add({ severity: 'error', summary: '登录失败', detail: String(e), life: 5000 })
-    auth.stage = 'idle'
   }
 }
 
@@ -197,7 +209,11 @@ watch(
     if (!url) return
     await nextTick()
     if (qrCanvas.value) {
-      QRCode.toCanvas(qrCanvas.value, url, { width: 220, margin: 2 })
+      try {
+        await QRCode.toCanvas(qrCanvas.value, url, { width: 220, margin: 2 })
+      } catch (e: any) {
+        toast.add({ severity: 'error', summary: '二维码渲染失败', detail: String(e?.message ?? e), life: 5000 })
+      }
     }
   },
 )
@@ -208,12 +224,16 @@ const passcode = ref('')
 const accounts = ref<DesktopAccount[]>([])
 
 async function detect() {
-  const p = await Auth.detectDesktopPath()
-  if (p) {
-    desktopPath.value = p
-    toast.add({ severity: 'success', summary: '已找到数据目录', detail: p, life: 3000 })
-  } else {
-    toast.add({ severity: 'warn', summary: '未找到', detail: '请手动指定 Telegram Desktop 目录', life: 4000 })
+  try {
+    const p = await Auth.detectDesktopPath()
+    if (p) {
+      desktopPath.value = p
+      toast.add({ severity: 'success', summary: '已找到数据目录', detail: p, life: 3000 })
+    } else {
+      toast.add({ severity: 'warn', summary: '未找到', detail: '请手动指定 Telegram Desktop 目录', life: 4000 })
+    }
+  } catch (e: any) {
+    toast.add({ severity: 'error', summary: '探测失败', detail: String(e?.message ?? e), life: 5000 })
   }
 }
 
@@ -335,6 +355,7 @@ async function doLogout() {
 
 .qr-wrap canvas {
   border-radius: 8px;
+  /* 二维码扫描要求固定白底，功能必需，豁免 CSS 变量规范 */
   background: #fff;
   padding: 8px;
 }

@@ -31,14 +31,12 @@
       >
         <AppIcon name="account" />
       </div>
-      <div
-        class="nav-item"
-        v-tooltip.right="isDark ? '切换到亮色' : '切换到暗色'"
-        role="button"
-        aria-label="切换主题"
-        @click="toggleTheme"
-      >
-        <AppIcon :name="isDark ? 'theme-light' : 'theme-dark'" />
+      <div class="nav-item theme-switch" v-tooltip.right="themeTip" aria-label="切换主题">
+        <ToggleSwitch :model-value="isDark" @update:model-value="toggleTheme">
+          <template #handle>
+            <AppIcon class="handle-icon" :name="isDark ? 'theme-dark' : 'theme-light'" />
+          </template>
+        </ToggleSwitch>
       </div>
     </aside>
 
@@ -51,14 +49,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import Toast from 'primevue/toast'
+import ToggleSwitch from 'primevue/toggleswitch'
 
 import AppIcon from './components/AppIcon.vue'
 import appIcon from './assets/app-icon.svg'
 import { router } from './router'
-import { getTheme, setTheme } from './theme'
+import { isDark, themeMode } from './theme'
 import { useAuthStore } from './stores/auth'
 import { useTasksStore } from './stores/tasks'
 import { useScriptsStore } from './stores/scripts'
@@ -82,13 +81,15 @@ function goLogin() {
   router.push('/login')
 }
 
-const dark = ref(document.documentElement.classList.contains('app-dark'))
-const isDark = computed(() => dark.value)
+const settings = useSettingsStore()
+const themeTip = computed(() => {
+  const target = isDark.value ? '切换到亮色' : '切换到暗色'
+  return themeMode.value === 'system' ? `${target}（手动切换将脱离跟随系统）` : target
+})
 
 function toggleTheme() {
-  const next = getTheme() === 'dark' || dark.value ? 'light' : 'dark'
-  setTheme(next)
-  dark.value = next === 'dark'
+  // 快捷开关只在亮/暗间切换并写入设置，跟随系统请在设置页选择
+  settings.applyTheme(isDark.value ? 'light' : 'dark')
 }
 
 onMounted(async () => {
@@ -100,9 +101,18 @@ onMounted(async () => {
     useSettingsStore().init(),
     useLogsStore().init(),
   ])
-  dark.value = document.documentElement.classList.contains('app-dark')
 })
 </script>
 
 <style scoped>
+.theme-switch {
+  cursor: default;
+}
+.theme-switch :deep(.p-toggleswitch) {
+  transform: scale(0.85);
+}
+.theme-switch :deep(.handle-icon) {
+  width: 12px;
+  height: 12px;
+}
 </style>

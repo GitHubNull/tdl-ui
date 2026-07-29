@@ -33,9 +33,22 @@ func NewStore(dir string) *Store {
 // 脚本名仅允许字母、数字、下划线、中划线与中文，防止路径穿越。
 var nameRe = regexp.MustCompile(`^[\w\p{Han}-]+$`)
 
+// windowsReservedNames Windows 保留设备名（不区分大小写），
+// 作为文件名时创建/删除行为异常，需拒绝（SCR-05）。
+var windowsReservedNames = map[string]struct{}{
+	"con": {}, "prn": {}, "aux": {}, "nul": {},
+	"com1": {}, "com2": {}, "com3": {}, "com4": {}, "com5": {},
+	"com6": {}, "com7": {}, "com8": {}, "com9": {},
+	"lpt1": {}, "lpt2": {}, "lpt3": {}, "lpt4": {}, "lpt5": {},
+	"lpt6": {}, "lpt7": {}, "lpt8": {}, "lpt9": {},
+}
+
 func (s *Store) path(name string) (string, error) {
 	if !nameRe.MatchString(name) {
 		return "", fmt.Errorf("非法脚本名: %q（仅允许字母、数字、下划线、中划线与中文）", name)
+	}
+	if _, ok := windowsReservedNames[strings.ToLower(name)]; ok {
+		return "", fmt.Errorf("非法脚本名: %q（Windows 保留设备名）", name)
 	}
 	return filepath.Join(s.dir, name+".go"), nil
 }

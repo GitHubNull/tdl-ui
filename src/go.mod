@@ -93,8 +93,11 @@ require (
 	rsc.io/qr v0.2.0 // indirect
 )
 
+// ARC-05：tdl 依赖来自 fork（见 .gitmodules），必须经 submodule 本地 replace 引入；
+// require 中的版本号仅作记录，实际以 ref/tdl 当前 checkout 为准。
+// 构建前须执行 git submodule update --init，submodule commit 变更需随本仓库一起提交。
+// 注：上方 go 指令的 patch 版本号由 ref/tdl 的 go.mod（go 1.25.8）钉住，go mod tidy 会自动回写。
 replace (
 	github.com/iyear/tdl => ../ref/tdl
 	github.com/iyear/tdl/core => ../ref/tdl/core
-	github.com/iyear/tdl/extension => ../ref/tdl/extension
 )

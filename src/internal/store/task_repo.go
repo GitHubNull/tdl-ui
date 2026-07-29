@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"time"
 
@@ -10,8 +11,8 @@ import (
 func nowStr() string { return time.Now().Format("2006-01-02 15:04:05") }
 
 // InsertTask 在事务中插入任务主表 + 消息项。
-func (s *Store) InsertTask(t Task, items []Item) error {
-	tx, err := s.db.Begin()
+func (s *Store) InsertTask(ctx context.Context, t Task, items []Item) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -21,24 +22,24 @@ func (s *Store) InsertTask(t Task, items []Item) error {
 	if t.CreatedAt == "" {
 		t.CreatedAt = now
 	}
-	if _, err := tx.Exec(`INSERT INTO tasks
-		(id, label, dir, script_name, template, rewrite_ext, skip_same, group_media, status, error, total, finished, failed, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		t.ID, t.Label, t.Dir, t.ScriptName, t.Template,
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks
+		(id, label, dir, script_name, script_src, template, rewrite_ext, skip_same, group_media, status, error, total, finished, failed, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		t.ID, t.Label, t.Dir, t.ScriptName, t.ScriptSrc, t.Template,
 		boolToInt(t.RewriteExt), boolToInt(t.SkipSame), boolToInt(t.GroupMedia),
 		t.Status, t.Error, t.Total, t.Finished, t.Failed, t.CreatedAt, now); err != nil {
 		return errors.Wrap(err, "插入任务失败")
 	}
 
 	for _, it := range items {
-		if err := insertItemTx(tx, t.ID, it); err != nil {
+		if err := insertItemTx(ctx, tx, t.ID, it); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
 }
 
-func insertItemTx(tx *sql.Tx, taskID string, it Item) error {
+func insertItemTx(ctx context.Context, tx *sql.Tx, taskID string, it Item) error {
 	ids, err := marshalIntSlice(it.MessageIDs)
 	if err != nil {
 		return err
@@ -47,7 +48,7 @@ func insertItemTx(tx *sql.Tx, taskID string, it Item) error {
 	if it.ItemType == ItemTypeSelection {
 		dialogID = it.DialogID
 	}
-	if _, err := tx.Exec(`INSERT INTO task_items
+	if _, err := tx.ExecContext(ctx, `INSERT INTO task_items
 		(task_id, item_type, url, dialog_id, dialog_type, message_ids, created_at)
 		VALUES (?,?,?,?,?,?,?)`,
 		taskID, it.ItemType, nullString(it.URL), dialogID, nullString(it.DialogType), ids, nowStr()); err != nil {
@@ -64,28 +65,29 @@ func nullString(s string) any {
 }
 
 // UpdateTaskStatus 更新任务状态与错误信息。
-func (s *Store) UpdateTaskStatus(id, status, errMsg string) error {
-	_, err := s.db.Exec(`UPDATE tasks SET status=?, error=?, updated_at=? WHERE id=?`,
+func (s *Store) UpdateTaskStatus(ctx context.Context, id, status, errMsg string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE tasks SET status=?, error=?, updated_at=? WHERE id=?`,
 		status, errMsg, nowStr(), id)
 	return err
 }
 
-// UpdateTaskCounts 更新任务进度计数。
-func (s *Store) UpdateTaskCounts(id string, total, finished, failed int) error {
-	_, err := s.db.Exec(`UPDATE tasks SET total=?, finished=?, failed=?, updated_at=? WHERE id=?`,
-		total, finished, failed, nowStr(), id)
+// UpdateTaskState 单条 UPDATE 同步状态与计数（ENG-10：避免两条独立 UPDATE
+// 在多 worker 并发下乱序写入时状态与计数撕裂）。
+func (s *Store) UpdateTaskState(ctx context.Context, id, status, errMsg string, total, finished, failed int) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE tasks SET status=?, error=?, total=?, finished=?, failed=?, updated_at=? WHERE id=?`,
+		status, errMsg, total, finished, failed, nowStr(), id)
 	return err
 }
 
-// DeleteTask 删除任务（外键级联清理 items/files/resume_points）。
-func (s *Store) DeleteTask(id string) error {
-	_, err := s.db.Exec(`DELETE FROM tasks WHERE id=?`, id)
+// DeleteTask 删除任务（外键级联清理 items/files/resume_keys）。
+func (s *Store) DeleteTask(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM tasks WHERE id=?`, id)
 	return err
 }
 
 // LoadAllTasks 按创建顺序返回全部任务主表行。
-func (s *Store) LoadAllTasks() ([]Task, error) {
-	rows, err := s.db.Query(`SELECT id, label, dir, script_name, template,
+func (s *Store) LoadAllTasks(ctx context.Context) ([]Task, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, label, dir, script_name, script_src, template,
 		rewrite_ext, skip_same, group_media, status, error, total, finished, failed, created_at, updated_at
 		FROM tasks ORDER BY created_at ASC, rowid ASC`)
 	if err != nil {
@@ -97,14 +99,15 @@ func (s *Store) LoadAllTasks() ([]Task, error) {
 	for rows.Next() {
 		var t Task
 		var rewrite, skip, group int
-		var label, script, tpl, errMsg sql.NullString
-		if err := rows.Scan(&t.ID, &label, &t.Dir, &script, &tpl,
+		var label, script, src, tpl, errMsg sql.NullString
+		if err := rows.Scan(&t.ID, &label, &t.Dir, &script, &src, &tpl,
 			&rewrite, &skip, &group, &t.Status, &errMsg,
 			&t.Total, &t.Finished, &t.Failed, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		t.Label = label.String
 		t.ScriptName = script.String
+		t.ScriptSrc = src.String
 		t.Template = tpl.String
 		t.Error = errMsg.String
 		t.RewriteExt = rewrite != 0
@@ -116,8 +119,8 @@ func (s *Store) LoadAllTasks() ([]Task, error) {
 }
 
 // ListItems 返回任务的全部消息项。
-func (s *Store) ListItems(taskID string) ([]Item, error) {
-	rows, err := s.db.Query(`SELECT id, task_id, item_type, url, dialog_id, dialog_type, message_ids, created_at
+func (s *Store) ListItems(ctx context.Context, taskID string) ([]Item, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, task_id, item_type, url, dialog_id, dialog_type, message_ids, created_at
 		FROM task_items WHERE task_id=? ORDER BY id ASC`, taskID)
 	if err != nil {
 		return nil, err

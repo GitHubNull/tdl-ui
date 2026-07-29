@@ -37,8 +37,9 @@ func serveMediaImage(s *ChatService, w http.ResponseWriter, r *http.Request, pre
 
 	b, err := s.thumbJPEG(dialogID, q.Get("t"), msgID, preview)
 	if err != nil {
-		logMedia.Debugf("缩略图拉取失败: dialog=%d msg=%d preview=%v err=%v", dialogID, msgID, preview, err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		// SVC-15：详情走日志，不把内部错误链（kv 路径、gotd 错误）发给前端
+		logMedia.Warnf("缩略图拉取失败: dialog=%d msg=%d preview=%v err=%v", dialogID, msgID, preview, err)
+		http.Error(w, "拉取媒体图失败，详情见应用日志", http.StatusInternalServerError)
 		return
 	}
 	if len(b) == 0 {

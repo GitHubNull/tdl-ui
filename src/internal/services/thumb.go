@@ -124,12 +124,12 @@ func (s *ChatService) thumbJPEG(dialogID int64, dialogType string, messageID int
 		kind = cacheKindPreview
 	}
 	return s.thumbs.Get(kind, dialogID, messageID, func() ([]byte, error) {
-		// 超时需覆盖在常驻客户端队列中的排队时间（列表扫描等大任务可能插队在前）
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		// 独立缩略图队列排队短，worker 会跳过已超时的任务，30s 足够覆盖单次拉取
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		var out []byte
-		err := s.invoke(ctx, func(ctx context.Context, api *tg.Client) error {
+		err := s.invokeThumb(ctx, func(ctx context.Context, api *tg.Client) error {
 			kvd, err := s.kv.Open(engine.Namespace)
 			if err != nil {
 				return errors.Wrap(err, "open kv")

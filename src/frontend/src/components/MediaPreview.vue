@@ -86,10 +86,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import Button from 'primevue/button'
 
 import { previewURL, thumbURL } from '../api'
+import { fmtDate, fmtSize, kindIcon } from '../utils/format'
 import type { MediaItem } from '../types'
 
 const props = defineProps<{
@@ -188,20 +189,44 @@ function endPan() {
 // ---- 切换与关闭 ----
 
 function close() {
+  pendingAdvance = false
   emit('update:visible', false)
 }
+
+// FE-26：末项续拉时标记待前进，数据到达后自动切到下一张，避免“按了没反应”
+let pendingAdvance = false
 
 function go(delta: number) {
   const next = props.index + delta
   if (next < 0) return
   if (next >= props.items.length) {
-    if (props.hasMore) emit('load-more') // 到尾部自动续拉，数据到达后可再切
+    if (props.hasMore) {
+      pendingAdvance = true
+      emit('load-more') // 到尾部自动续拉，数据到达后自动前进
+    }
     return
   }
+  pendingAdvance = false
   emit('update:index', next)
   // 预取尾部：临近末尾提前触发加载
   if (props.hasMore && next >= props.items.length - 3) emit('load-more')
 }
+
+watch(
+  () => props.items.length,
+  (len) => {
+    if (!props.visible) return
+    // FE-26：外部 items 被清空（如登出重置）时自动关闭，避免空遮罩
+    if (len === 0) {
+      close()
+      return
+    }
+    if (pendingAdvance && props.index + 1 < len) {
+      pendingAdvance = false
+      emit('update:index', props.index + 1)
+    }
+  },
+)
 
 function onKey(e: KeyboardEvent) {
   if (!props.visible) return
@@ -230,6 +255,12 @@ watch(
   },
 )
 
+// 预览打开状态下整页卸载（如切换路由）时，清理挂在 window 上的监听，避免闭包泄漏
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey)
+  endPan()
+})
+
 // 切换条目时重置加载/缩放状态
 watch(
   () => item.value?.messageId,
@@ -239,51 +270,21 @@ watch(
     resetView()
   },
 )
-
-// ---- 展示辅助 ----
-
-function kindIcon(k: string) {
-  switch (k) {
-    case 'video':
-      return 'pi pi-video'
-    case 'photo':
-      return 'pi pi-image'
-    case 'audio':
-      return 'pi pi-volume-up'
-    default:
-      return 'pi pi-file'
-  }
-}
-
-function fmtSize(n: number) {
-  if (!n || n < 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let v = n
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
-  }
-  return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`
-}
-
-function fmtDate(unix: number) {
-  if (!unix) return '-'
-  const d = new Date(unix * 1000)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
 </script>
 
 <style scoped>
 .mp-overlay {
+  /* lightbox 暗色遮罩场景：明暗主题下均为黑底白字，属功能性固定配色，豁免主题 token，集中为组件级变量 */
+  --mp-overlay-bg: rgb(0 0 0 / 88%);
+  --mp-chip-bg: rgb(0 0 0 / 65%);
+  --mp-fg: #fff;
   position: fixed;
   inset: 0;
   z-index: 1100;
   display: flex;
   flex-direction: column;
-  background: rgb(0 0 0 / 88%);
-  color: #fff;
+  background: var(--mp-overlay-bg);
+  color: var(--mp-fg);
 }
 
 .mp-top {
@@ -305,7 +306,7 @@ function fmtDate(unix: number) {
 }
 
 .mp-meta {
-  color: rgb(255 255 255 / 65%);
+  color: color-mix(in srgb, var(--mp-fg) 65%, transparent);
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
@@ -361,7 +362,7 @@ function fmtDate(unix: number) {
 .mp-loading {
   position: absolute;
   font-size: 2rem;
-  color: rgb(255 255 255 / 80%);
+  color: color-mix(in srgb, var(--mp-fg) 80%, transparent);
 }
 
 .mp-video-hint {
@@ -374,7 +375,7 @@ function fmtDate(unix: number) {
   gap: 8px;
   padding: 8px 16px;
   border-radius: 20px;
-  background: rgb(0 0 0 / 65%);
+  background: var(--mp-chip-bg);
   font-size: 13px;
   pointer-events: none;
 }
@@ -390,7 +391,7 @@ function fmtDate(unix: number) {
 
 .mp-bigicon {
   font-size: 5rem;
-  color: rgb(255 255 255 / 55%);
+  color: color-mix(in srgb, var(--mp-fg) 55%, transparent);
 }
 
 .mp-file-name {
@@ -401,7 +402,7 @@ function fmtDate(unix: number) {
 }
 
 .mp-caption {
-  color: rgb(255 255 255 / 70%);
+  color: color-mix(in srgb, var(--mp-fg) 70%, transparent);
   font-size: 13px;
   margin-top: 12px;
   white-space: pre-wrap;
@@ -440,7 +441,7 @@ function fmtDate(unix: number) {
 }
 
 .mp-pos {
-  color: rgb(255 255 255 / 65%);
+  color: color-mix(in srgb, var(--mp-fg) 65%, transparent);
   font-size: 13px;
   margin-left: 16px;
 }

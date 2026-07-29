@@ -1,58 +1,60 @@
 package store
 
 import (
-	"database/sql"
-	"encoding/json"
+	"context"
 
 	"github.com/go-faster/errors"
 )
 
+// 断点表 resume_keys 为逐 key 行结构（ENG-12）：每文件完成仅追加一行，
+// 替代旧版“每任务一行 JSON 集合”的全量重写。
+
 // LoadFinished 读取任务断点集合（元素为 "dialogID:messageID"）。
-func (s *Store) LoadFinished(taskID string) (map[string]struct{}, error) {
-	var raw string
-	err := s.db.QueryRow(`SELECT finished FROM resume_points WHERE task_id=?`, taskID).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return make(map[string]struct{}), nil
-	}
+func (s *Store) LoadFinished(ctx context.Context, taskID string) (map[string]struct{}, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT resume_key FROM resume_keys WHERE task_id=?`, taskID)
 	if err != nil {
 		return nil, errors.Wrap(err, "读取断点失败")
 	}
+	defer func() { _ = rows.Close() }()
 
-	var keys []string
-	if raw != "" {
-		if err := json.Unmarshal([]byte(raw), &keys); err != nil {
-			return nil, errors.Wrap(err, "解析断点失败")
+	set := make(map[string]struct{})
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, errors.Wrap(err, "读取断点失败")
 		}
-	}
-	set := make(map[string]struct{}, len(keys))
-	for _, k := range keys {
 		set[k] = struct{}{}
 	}
-	return set, nil
+	return set, rows.Err()
 }
 
-// SaveFinished upsert 任务断点集合。
-func (s *Store) SaveFinished(taskID string, finished map[string]struct{}) error {
-	keys := make([]string, 0, len(finished))
-	for k := range finished {
-		keys = append(keys, k)
-	}
-	b, err := json.Marshal(keys)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(`INSERT INTO resume_points (task_id, finished, updated_at)
-		VALUES (?,?,?)
-		ON CONFLICT(task_id) DO UPDATE SET finished=excluded.finished, updated_at=excluded.updated_at`,
-		taskID, string(b), nowStr())
+// AddFinished 追加单个断点 key（每文件完成时调用，O(1) 行级写入）。
+func (s *Store) AddFinished(ctx context.Context, taskID, key string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO resume_keys (task_id, resume_key) VALUES (?,?)`, taskID, key)
 	if err != nil {
 		return errors.Wrap(err, "保存断点失败")
 	}
 	return nil
 }
 
+// SaveFinished 批量补写断点集合（任务中断时兜底持久化，幂等）。
+func (s *Store) SaveFinished(ctx context.Context, taskID string, finished map[string]struct{}) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for k := range finished {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO resume_keys (task_id, resume_key) VALUES (?,?)`, taskID, k); err != nil {
+			return errors.Wrap(err, "保存断点失败")
+		}
+	}
+	return tx.Commit()
+}
+
 // DeleteResume 删除任务断点行（Restart 或任务成功完成时调用）。
-func (s *Store) DeleteResume(taskID string) error {
-	_, err := s.db.Exec(`DELETE FROM resume_points WHERE task_id=?`, taskID)
+func (s *Store) DeleteResume(ctx context.Context, taskID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM resume_keys WHERE task_id=?`, taskID)
 	return err
 }

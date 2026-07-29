@@ -3,10 +3,12 @@
 package config
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
 
+	"github.com/go-faster/errors"
 	"gopkg.in/yaml.v2"
 
 	"tdl-ui/internal/logging"
@@ -124,18 +126,23 @@ func NewManager() (*Manager, error) {
 		}
 	}
 
-	m := &Manager{dataDir: dataDir, settings: defaultSettings()}
+	m := &Manager{dataDir: dataDir, settings: defaultSettings(dataDir)}
 	if err := m.loadOrMigrate(); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-func defaultSettings() Settings {
-	home, _ := os.UserHomeDir()
+func defaultSettings(dataDir string) Settings {
+	// 默认下载目录：home 取失败时回落到数据目录下 downloads，
+	// 避免生成相对路径导致落点不可预期（SVC-13）
+	downloadDir := filepath.Join(dataDir, "downloads")
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		downloadDir = filepath.Join(home, "Downloads", "tdl-ui")
+	}
 	return Settings{
 		Proxy:       "",
-		DownloadDir: filepath.Join(home, "Downloads", "tdl-ui"),
+		DownloadDir: downloadDir,
 		Template:    DefaultTemplate,
 		Threads:     4,
 		Limit:       2,
@@ -175,6 +182,12 @@ func (m *Manager) Get() Settings {
 	return m.settings
 }
 
+// 参数上限（SVC-14）：防止前端传入夸张值拖垮连接池与 Telegram 限流。
+const (
+	maxThreads  = 16
+	maxPoolSize = 64
+)
+
 // Update 保存新的设置。
 func (m *Manager) Update(s Settings) error {
 	// 空值兜底，避免前端传入非法配置
@@ -190,7 +203,21 @@ func (m *Manager) Update(s Settings) error {
 	if s.PoolSize <= 0 {
 		s.PoolSize = 8
 	}
+	// 上限钳制（SVC-14）
+	if s.Threads > maxThreads {
+		s.Threads = maxThreads
+	}
+	if s.PoolSize > maxPoolSize {
+		s.PoolSize = maxPoolSize
+	}
 	s.Log = s.Log.WithDefaults()
+
+	// Proxy 预校验（SVC-14）：非法值在保存时即报错，而非等到建连时才以晦涩错误暴露。
+	if s.Proxy != "" {
+		if err := validateProxy(s.Proxy); err != nil {
+			return err
+		}
+	}
 
 	// 非空缓存目录：校验可创建且可写，失败则阻断保存。
 	if s.CacheDir != "" {
@@ -203,6 +230,23 @@ func (m *Manager) Update(s Settings) error {
 	m.settings = s
 	m.mu.Unlock()
 	return m.save()
+}
+
+// validateProxy 校验代理地址格式：scheme 白名单 + 非空主机名（SVC-14）。
+func validateProxy(p string) error {
+	u, err := url.Parse(p)
+	if err != nil {
+		return errors.Wrap(err, "代理地址无效")
+	}
+	switch u.Scheme {
+	case "socks5", "http", "https":
+	default:
+		return errors.Errorf("代理协议仅支持 socks5/http/https，当前为 %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return errors.Errorf("代理地址缺少主机名: %q", p)
+	}
+	return nil
 }
 
 // verifyWritableDir 确保目录可创建并可写（写入探针文件后删除）。

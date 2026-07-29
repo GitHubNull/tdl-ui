@@ -2,6 +2,16 @@ import { defineStore } from 'pinia'
 import { Auth, EVENT_LOGIN, on } from '../api'
 import type { LoginUpdate, LoginUser } from '../types'
 
+// FE-17：保存事件取消函数，HMR 重建模块时注销旧回调，避免事件双触发
+const unsubs: Array<() => void> = []
+import.meta.hot?.dispose(() => {
+  unsubs.splice(0).forEach((off) => off())
+})
+
+// FE-19：pending 态超时兜底，后端既不 reject 也不发事件时避免永久转圈
+const PENDING_TIMEOUT_MS = 30_000
+let pendingTimer: ReturnType<typeof setTimeout> | undefined
+
 /** 登录状态与登录流程事件。 */
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -20,7 +30,7 @@ export const useAuthStore = defineStore('auth', {
       if (this.inited) return
       this.inited = true
 
-      on<LoginUpdate>(EVENT_LOGIN, (u) => this.handleUpdate(u))
+      unsubs.push(on<LoginUpdate>(EVENT_LOGIN, (u) => this.handleUpdate(u)))
       try {
         const st = await Auth.status()
         this.loggedIn = st.loggedIn
@@ -31,6 +41,8 @@ export const useAuthStore = defineStore('auth', {
       }
     },
     handleUpdate(u: LoginUpdate) {
+      // 后端已响应，解除 pending 超时兜底
+      clearTimeout(pendingTimer)
       switch (u.stage) {
         case 'qr':
           this.stage = 'qr'
@@ -69,17 +81,42 @@ export const useAuthStore = defineStore('auth', {
       }
     },
     async startCodeLogin(phone: string) {
-      this.error = ''
-      this.stage = 'pending'
-      await Auth.startCodeLogin(phone)
+      this.beginPending()
+      try {
+        await Auth.startCodeLogin(phone)
+      } catch (e) {
+        // FE-18：出错复位收敛到 action 内，组件不再直接改 stage
+        this.resetPending()
+        throw e
+      }
     },
     async startQRLogin() {
+      this.beginPending()
+      try {
+        await Auth.startQRLogin()
+      } catch (e) {
+        this.resetPending()
+        throw e
+      }
+    },
+    beginPending() {
       this.error = ''
       this.stage = 'pending'
-      await Auth.startQRLogin()
+      clearTimeout(pendingTimer)
+      pendingTimer = setTimeout(() => {
+        if (this.stage === 'pending') {
+          this.stage = 'error'
+          this.error = '登录请求长时间无响应，请重试'
+        }
+      }, PENDING_TIMEOUT_MS)
+    },
+    resetPending() {
+      clearTimeout(pendingTimer)
+      this.stage = 'idle'
     },
     async cancel() {
       await Auth.cancelLogin()
+      clearTimeout(pendingTimer)
       this.stage = 'idle'
       this.qrUrl = ''
     },

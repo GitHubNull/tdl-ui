@@ -152,3 +152,95 @@ func Filter(f interface{}) bool {
 		t.Fatal("沙箱应禁止导入 os/exec")
 	}
 }
+
+func TestSandboxWhitelistBlocksDangerousPackages(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"os", `package main
+
+import "os"
+
+func Filter(f interface{}) bool {
+	_ = os.StartProcess
+	return true
+}
+`},
+		{"net", `package main
+
+import "net"
+
+func Filter(f interface{}) bool {
+	_ = net.Dial
+	return true
+}
+`},
+		{"net/http", `package main
+
+import "net/http"
+
+func Filter(f interface{}) bool {
+	_ = http.Get
+	return true
+}
+`},
+		{"syscall", `package main
+
+import "syscall"
+
+func Filter(f interface{}) bool {
+	_ = syscall.Exit
+	return true
+}
+`},
+		{"reflect", `package main
+
+import "reflect"
+
+func Filter(f interface{}) bool {
+	_ = reflect.ValueOf
+	return true
+}
+`},
+		{"io/ioutil", `package main
+
+import "io/ioutil"
+
+func Filter(f interface{}) bool {
+	_ = ioutil.WriteFile
+	return true
+}
+`},
+	}
+
+	for _, tc := range cases {
+		if _, err := Load(tc.src); err == nil {
+			t.Errorf("沙箱应禁止导入 %s", tc.name)
+		}
+	}
+}
+
+func TestSandboxAllowsPureComputation(t *testing.T) {
+	src := `package main
+
+import (
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"tdlui/api"
+)
+
+var re = regexp.MustCompile(` + "`" + `\d+` + "`" + `)
+
+func Rename(f api.FileInfo) string {
+	ext := filepath.Ext(f.FileName)
+	return strings.ToLower(re.ReplaceAllString(f.FileName, strconv.Itoa(1))) + ext
+}
+`
+	if _, err := Load(src); err != nil {
+		t.Fatalf("白名单内的纯计算包应可用: %v", err)
+	}
+}

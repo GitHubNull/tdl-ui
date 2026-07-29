@@ -11,9 +11,11 @@
 package script
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/traefik/yaegi/interp"
@@ -25,6 +27,9 @@ import (
 // callTimeout 单次脚本函数调用的超时时间。
 const callTimeout = 10 * time.Second
 
+// errScriptTimeout 脚本执行超时哨兵错误，用于触发契约函数熔断。
+var errScriptTimeout = errors.New("脚本执行超时")
+
 // Contracts 从脚本中解析出的契约函数集合，未定义的函数为 nil。
 type Contracts struct {
 	Filter      func(scriptapi.FileInfo) bool
@@ -32,6 +37,11 @@ type Contracts struct {
 	OnTaskStart func(scriptapi.TaskInfo)
 	OnFileDone  func(scriptapi.FileInfo)
 	OnTaskDone  func(scriptapi.TaskInfo)
+
+	// mu 串行化所有 Safe* 调用：yaegi 解释器不保证并发安全，
+	// Filter/Rename（迭代器 goroutine）与 OnFileDone（下载 worker）会时间重叠；
+	// 同时保护超时熔断置 nil 的写入。
+	mu sync.Mutex
 }
 
 // Load 解释执行脚本源码并提取契约函数。
@@ -92,57 +102,119 @@ func Load(src string) (*Contracts, error) {
 	return c, nil
 }
 
-// HasFilter 是否定义了过滤函数。
-func (c *Contracts) HasFilter() bool { return c != nil && c.Filter != nil }
+// HasFilter 是否定义了过滤函数（已熔断的视为未定义）。
+func (c *Contracts) HasFilter() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Filter != nil
+}
 
-// HasRename 是否定义了命名函数。
-func (c *Contracts) HasRename() bool { return c != nil && c.Rename != nil }
+// HasRename 是否定义了命名函数（已熔断的视为未定义）。
+func (c *Contracts) HasRename() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Rename != nil
+}
 
 // SafeFilter 带 panic 恢复与超时保护的过滤调用；出错时默认保留文件。
 func (c *Contracts) SafeFilter(f scriptapi.FileInfo) (keep bool, err error) {
-	if !c.HasFilter() {
+	if c == nil {
 		return true, nil
 	}
-	return callWithGuard(func() bool { return c.Filter(f) }, true)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Filter == nil {
+		return true, nil
+	}
+	keep, err = callWithGuard(func() bool { return c.Filter(f) }, true)
+	if errors.Is(err, errScriptTimeout) {
+		c.Filter = nil
+		scriptapi.Logf("Filter 执行超时，已熔断禁用该脚本函数")
+	}
+	return keep, err
 }
 
 // SafeRename 带保护的命名调用；出错或返回空串时由调用方回退默认模板。
 func (c *Contracts) SafeRename(f scriptapi.FileInfo) (name string, err error) {
-	if !c.HasRename() {
+	if c == nil {
 		return "", nil
 	}
-	return callWithGuard(func() string { return c.Rename(f) }, "")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Rename == nil {
+		return "", nil
+	}
+	name, err = callWithGuard(func() string { return c.Rename(f) }, "")
+	if errors.Is(err, errScriptTimeout) {
+		c.Rename = nil
+		scriptapi.Logf("Rename 执行超时，已熔断禁用该脚本函数")
+	}
+	return name, err
 }
 
 // SafeOnTaskStart 带保护的任务开始钩子调用。
 func (c *Contracts) SafeOnTaskStart(t scriptapi.TaskInfo) error {
-	if c == nil || c.OnTaskStart == nil {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.OnTaskStart == nil {
 		return nil
 	}
 	_, err := callWithGuard(func() struct{} { c.OnTaskStart(t); return struct{}{} }, struct{}{})
+	if errors.Is(err, errScriptTimeout) {
+		c.OnTaskStart = nil
+		scriptapi.Logf("OnTaskStart 执行超时，已熔断禁用该脚本函数")
+	}
 	return err
 }
 
 // SafeOnFileDone 带保护的文件完成钩子调用。
 func (c *Contracts) SafeOnFileDone(f scriptapi.FileInfo) error {
-	if c == nil || c.OnFileDone == nil {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.OnFileDone == nil {
 		return nil
 	}
 	_, err := callWithGuard(func() struct{} { c.OnFileDone(f); return struct{}{} }, struct{}{})
+	if errors.Is(err, errScriptTimeout) {
+		c.OnFileDone = nil
+		scriptapi.Logf("OnFileDone 执行超时，已熔断禁用该脚本函数")
+	}
 	return err
 }
 
 // SafeOnTaskDone 带保护的任务结束钩子调用。
 func (c *Contracts) SafeOnTaskDone(t scriptapi.TaskInfo) error {
-	if c == nil || c.OnTaskDone == nil {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.OnTaskDone == nil {
 		return nil
 	}
 	_, err := callWithGuard(func() struct{} { c.OnTaskDone(t); return struct{}{} }, struct{}{})
+	if errors.Is(err, errScriptTimeout) {
+		c.OnTaskDone = nil
+		scriptapi.Logf("OnTaskDone 执行超时，已熔断禁用该脚本函数")
+	}
 	return err
 }
 
 // callWithGuard 在独立 goroutine 中执行脚本函数，捕获 panic 并附加超时。
-// 超时后放弃等待（goroutine 泄漏风险由脚本编写者文档约束）。
+// 超时时返回 errScriptTimeout，由调用方熔断对应契约函数，避免死循环脚本
+// 逐文件重复超时并持续泄漏 goroutine。
 func callWithGuard[T any](fn func() T, fallback T) (T, error) {
 	type result struct {
 		val T
@@ -163,25 +235,40 @@ func callWithGuard[T any](fn func() T, fallback T) (T, error) {
 	case r := <-ch:
 		return r.val, r.err
 	case <-time.After(callTimeout):
-		return fallback, fmt.Errorf("脚本执行超时（%s）", callTimeout)
+		return fallback, fmt.Errorf("超过 %s: %w", callTimeout, errScriptTimeout)
 	}
 }
 
-// sandboxSymbols 返回受限的标准库符号表：移除 os/exec 等危险包。
+// sandboxSymbols 返回白名单标准库符号表：仅导出脚本契约所需的纯计算类包，
+// 阻断 os、net、syscall、unsafe、reflect 等具备进程/文件/网络能力的包。
 func sandboxSymbols() interp.Exports {
-	banned := []string{"os/exec"}
+	allowed := map[string]struct{}{
+		"bytes":         {},
+		"errors":        {},
+		"fmt":           {},
+		"math":          {},
+		"math/rand":     {},
+		"path":          {},
+		"path/filepath": {},
+		"regexp":        {},
+		"sort":          {},
+		"strconv":       {},
+		"strings":       {},
+		"time":          {},
+		"unicode":       {},
+		"unicode/utf8":  {},
+	}
 
-	symbols := make(interp.Exports, len(stdlib.Symbols))
-	for path, pkg := range stdlib.Symbols {
-		blocked := false
-		for _, b := range banned {
-			if strings.HasPrefix(path, b) {
-				blocked = true
-				break
-			}
+	symbols := make(interp.Exports, len(allowed))
+	for key, pkg := range stdlib.Symbols {
+		// yaegi 符号表 key 形如 "importPath/pkgName"（如 "path/filepath/filepath"），
+		// 去掉末段包名得到 import 路径后比对白名单。
+		importPath := key
+		if idx := strings.LastIndex(key, "/"); idx >= 0 {
+			importPath = key[:idx]
 		}
-		if !blocked {
-			symbols[path] = pkg
+		if _, ok := allowed[importPath]; ok {
+			symbols[key] = pkg
 		}
 	}
 	return symbols
