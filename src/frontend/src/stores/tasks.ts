@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { Download, EVENT_TASK, EVENT_TASK_FILE, on } from '../api'
-import type { AppendOptions, FileEvent, TaskView } from '../types'
+import type { FileEvent, TaskView } from '../types'
 
 /** 下载任务列表与实时进度。 */
 export const useTasksStore = defineStore('tasks', {
@@ -58,10 +58,6 @@ export const useTasksStore = defineStore('tasks', {
     },
     async resume(id: string) {
       await Download.resumeTask(id)
-    },
-    async appendTask(id: string, opts: AppendOptions) {
-      await Download.appendTaskItems(id, opts)
-      await this.refresh()
     },
     async cancel(id: string) {
       await Download.cancelTask(id)

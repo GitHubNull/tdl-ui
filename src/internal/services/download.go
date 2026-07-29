@@ -41,16 +41,6 @@ func (s *DownloadService) ListTasks() []engine.TaskView {
 	return s.manager.List()
 }
 
-// AppendTaskItems 向已有任务追加消息项（重启式，去重 / 合并 / 断点保留）。
-func (s *DownloadService) AppendTaskItems(id string, opts engine.AppendOptions) error {
-	logDownload.Infof("追加任务消息项: id=%s 链接数=%d 选集数=%d", id, len(opts.URLs), len(opts.Selections))
-	if err := s.manager.AppendItems(id, opts); err != nil {
-		logDownload.Errorf("追加任务消息项失败: id=%s err=%v", id, err)
-		return err
-	}
-	return nil
-}
-
 // PauseTask 暂停任务，进度保留。
 func (s *DownloadService) PauseTask(id string) error {
 	logDownload.Infof("暂停任务: id=%s", id)

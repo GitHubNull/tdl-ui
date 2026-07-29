@@ -15,7 +15,6 @@ import type {
   TaskFile,
   TaskOptions,
   TaskView,
-  AppendOptions,
   TestRunResult,
   ValidateResult,
 } from './types'
@@ -55,8 +54,6 @@ export const Auth = {
 // ---- DownloadService ----
 export const Download = {
   createTask: (opts: TaskOptions): Promise<string> => svc('DownloadService').CreateTask(opts),
-  appendTaskItems: (id: string, opts: AppendOptions): Promise<void> =>
-    svc('DownloadService').AppendTaskItems(id, opts),
   listTasks: (): Promise<TaskView[]> => svc('DownloadService').ListTasks(),
   pauseTask: (id: string): Promise<void> => svc('DownloadService').PauseTask(id),
   resumeTask: (id: string): Promise<void> => svc('DownloadService').ResumeTask(id),

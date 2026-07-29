@@ -55,45 +55,6 @@ func TestInsertAndLoadTask(t *testing.T) {
 	}
 }
 
-func TestAppendURLDedup(t *testing.T) {
-	s := newTestStore(t)
-	if err := s.InsertTask(Task{ID: "t1", Dir: "/tmp", Status: "paused"}, nil); err != nil {
-		t.Fatal(err)
-	}
-	added, err := s.AppendURLItem("t1", "https://t.me/a/1")
-	if err != nil || !added {
-		t.Fatalf("首次追加应成功: %v %v", added, err)
-	}
-	added, err = s.AppendURLItem("t1", "https://t.me/a/1")
-	if err != nil || added {
-		t.Fatalf("重复 URL 应被去重: %v %v", added, err)
-	}
-	items, _ := s.ListItems("t1")
-	if len(items) != 1 {
-		t.Fatalf("应只有 1 条 URL 项，实际 %d", len(items))
-	}
-}
-
-func TestMergeSelection(t *testing.T) {
-	s := newTestStore(t)
-	if err := s.InsertTask(Task{ID: "t1", Dir: "/tmp", Status: "paused"}, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.MergeSelectionItem("t1", 42, "channel", []int{1, 2, 3}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.MergeSelectionItem("t1", 42, "channel", []int{3, 4, 5}); err != nil {
-		t.Fatal(err)
-	}
-	items, _ := s.ListItems("t1")
-	if len(items) != 1 {
-		t.Fatalf("同对话应合并为 1 行，实际 %d", len(items))
-	}
-	if len(items[0].MessageIDs) != 5 {
-		t.Fatalf("并集应为 5 个消息 ID，实际 %v", items[0].MessageIDs)
-	}
-}
-
 func TestFileUpsertAndFinish(t *testing.T) {
 	s := newTestStore(t)
 	if err := s.InsertTask(Task{ID: "t1", Dir: "/tmp", Status: "running"}, nil); err != nil {

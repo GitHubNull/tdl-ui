@@ -67,12 +67,6 @@ type TaskFile struct {
 	State string `json:"state"`
 }
 
-// AppendOptions 向已有任务追加消息项的参数（URLs 与 Selections 至少一项非空）。
-type AppendOptions struct {
-	URLs       []string    `json:"urls"`
-	Selections []Selection `json:"selections"`
-}
-
 // TaskView 任务视图（前端展示 / task:update 事件负载）。
 type TaskView struct {
 	ID         string   `json:"id"`
@@ -260,25 +254,6 @@ func storeFilesToTaskFiles(files []store.File) []TaskFile {
 	return out
 }
 
-// unionIntSlice 求两个 int 切片并集，保序去重（内存 opts 合并用）。
-func unionIntSlice(a, b []int) []int {
-	seen := make(map[int]struct{}, len(a)+len(b))
-	out := make([]int, 0, len(a)+len(b))
-	for _, v := range a {
-		if _, ok := seen[v]; !ok {
-			seen[v] = struct{}{}
-			out = append(out, v)
-		}
-	}
-	for _, v := range b {
-		if _, ok := seen[v]; !ok {
-			seen[v] = struct{}{}
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
 // Create 创建并启动下载任务，返回任务 ID。
 func (m *Manager) Create(opts TaskOptions) (string, error) {
 	if len(opts.URLs) == 0 && len(opts.Selections) == 0 {
@@ -339,110 +314,6 @@ func (m *Manager) Create(opts TaskOptions) (string, error) {
 	go m.run(t)
 
 	return t.ID, nil
-}
-
-// AppendItems 向已有任务追加消息项（重启式）：
-// 先写入/合并 task_items（URL 靠部分唱一索引去重，selection 按对话合并）；
-// running 走 Pause 路径，等本轮 run 退出后自动 Resume（execute 重组装后续项）；
-// done 追加后置回 paused（待用户恢复）；queued / 终态仅写 DB（下次运行时重组装）。
-func (m *Manager) AppendItems(taskID string, opts AppendOptions) error {
-	if len(opts.URLs) == 0 && len(opts.Selections) == 0 {
-		return errors.New("至少需要一条消息链接或一个选集")
-	}
-	if len(opts.URLs) > 0 {
-		urls, err := NormalizeURLs(opts.URLs)
-		if err != nil {
-			return err
-		}
-		opts.URLs = urls
-	}
-	if err := validateSelections(opts.Selections); err != nil {
-		return err
-	}
-
-	t, err := m.get(taskID)
-	if err != nil {
-		return err
-	}
-
-	// 写入 store（URL 去重、selection 合并）
-	if m.deps.Store != nil {
-		for _, u := range opts.URLs {
-			if _, err := m.deps.Store.AppendURLItem(taskID, u); err != nil {
-				return err
-			}
-		}
-		for _, sel := range opts.Selections {
-			if err := m.deps.Store.MergeSelectionItem(taskID, sel.DialogID, sel.DialogType, sel.MessageIDs); err != nil {
-				return err
-			}
-		}
-	}
-
-	// 同步内存 opts，保证视图/非运行窗口立即可见
-	t.mergeOpts(opts)
-
-	t.mu.Lock()
-	status := t.status
-	ch := t.runDone
-	t.mu.Unlock()
-
-	switch status {
-	case StatusRunning:
-		// 重启式：暂停当前 run，等它退出后自动恢复（重新从 task_items 组装）
-		_ = m.Pause(taskID)
-		go func() {
-			if ch != nil {
-				select {
-				case <-ch:
-				case <-time.After(reconnectTimeout):
-				}
-			}
-			if err := m.Resume(taskID); err != nil {
-				logEngine.Errorf("追加后恢复任务失败: id=%s err=%v", taskID, err)
-			}
-		}()
-	case StatusDone:
-		// 完成态：追加后置回 paused，暴露恢复入口（断点不重下，仅下新项）
-		t.mu.Lock()
-		t.status = StatusPaused
-		t.opts.Restart = false
-		t.mu.Unlock()
-		t.emitUpdate()
-	default:
-		// queued / paused / failed / canceled：仅写 DB，下次运行时重组装
-		t.emitUpdate()
-	}
-	return nil
-}
-
-// mergeOpts 把追加项合并进内存 opts（URL 去重、selection 按对话合并消息 ID）。
-func (t *Task) mergeOpts(opts AppendOptions) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	seen := make(map[string]struct{}, len(t.opts.URLs))
-	for _, u := range t.opts.URLs {
-		seen[u] = struct{}{}
-	}
-	for _, u := range opts.URLs {
-		if _, ok := seen[u]; !ok {
-			t.opts.URLs = append(t.opts.URLs, u)
-			seen[u] = struct{}{}
-		}
-	}
-	for _, ns := range opts.Selections {
-		merged := false
-		for i := range t.opts.Selections {
-			if t.opts.Selections[i].DialogID == ns.DialogID {
-				t.opts.Selections[i].MessageIDs = unionIntSlice(t.opts.Selections[i].MessageIDs, ns.MessageIDs)
-				merged = true
-				break
-			}
-		}
-		if !merged {
-			t.opts.Selections = append(t.opts.Selections, ns)
-		}
-	}
 }
 
 // List 按创建时间倒序返回任务视图。
@@ -811,7 +682,7 @@ func (m *Manager) run(t *Task) {
 func (m *Manager) execute(ctx context.Context, t *Task) (rerr error) {
 	settings := m.deps.Cfg.Get()
 
-	// 每轮从 task_items 表重组装 URLs/Selections（覆盖 queued 窗口期的追加）。
+	// 每轮从 task_items 表重组装 URLs/Selections，与持久化的消息项保持一致。
 	urls, selections := t.opts.URLs, t.opts.Selections
 	if m.deps.Store != nil {
 		items, err := m.deps.Store.ListItems(t.ID)

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0] - 2026-07-29 20:50:59
+
+### Removed
+- **任务追加下载功能整条链路已撤回。** 此前误将 tdl CLI 的单任务限制套用到 GUI，实际上 GUI 的 `Manager.Create` 天然支持并发独立任务（无互斥，每任务独立 client + dcpool），无需追加功能。
+  - 前端：移除下载页终态任务卡片上的「追加下载」加号按钮、`NewTaskDialog` 追加模式（`appendMode`/`taskId` props、追加提示块、条件渲染的三块表单）、`tasks.ts` 的 `appendTask` action、`api.ts` 的 `appendTaskItems` 封装、`types.ts` 的 `AppendOptions` 接口。
+  - 后端：移除 `services.DownloadService.AppendTaskItems`、`engine.AppendOptions` / `Manager.AppendItems` / `Task.mergeOpts` / `unionIntSlice`、`store.AppendURLItem` / `MergeSelectionItem` / `unionInts` 及对应单测。
+  - SQLite 表结构（`task_items`、`uq_items_url` 索引）与迁移语句保持不动；创建任务时写入消息项、重启恢复时重组装仍依赖它。
+
 ## [0.6.0] - 2026-07-29 02:01:16
 
 ### Added
