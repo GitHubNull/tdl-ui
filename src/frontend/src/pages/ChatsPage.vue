@@ -393,6 +393,17 @@ function openDownload(messageIds: number[]) {
 }
 
 function downloadOne(it: MediaItem) {
+  if (isDownloading(it.messageId)) {
+    confirm.require({
+      header: '重复下载',
+      message: '该文件当前正在下载中，是否确认重复下载？',
+      icon: 'pi pi-exclamation-triangle',
+      acceptProps: { label: '重复下载' },
+      rejectProps: { label: '取消', severity: 'secondary', outlined: true },
+      accept: () => openDownload([it.messageId]),
+    })
+    return
+  }
   if (downloadedMap.has(it.messageId)) {
     confirm.require({
       header: '重新下载',
@@ -409,7 +420,19 @@ function downloadOne(it: MediaItem) {
 
 function downloadSelected() {
   const ids = [...selectedMsgs.value]
-  const dupCount = ids.filter((id) => downloadedMap.has(id)).length
+  const dlCount = ids.filter((id) => isDownloading(id)).length
+  const dupCount = ids.filter((id) => !isDownloading(id) && downloadedMap.has(id)).length
+  if (dlCount > 0) {
+    confirm.require({
+      header: '重复下载',
+      message: `选中文件中有 ${dlCount} 个正在下载中${dupCount > 0 ? `、${dupCount} 个已下载` : ''}，是否确认重复下载？`,
+      icon: 'pi pi-exclamation-triangle',
+      acceptProps: { label: '重复下载' },
+      rejectProps: { label: '取消', severity: 'secondary', outlined: true },
+      accept: () => openDownload(ids),
+    })
+    return
+  }
   if (dupCount > 0) {
     confirm.require({
       header: '重新下载',
@@ -499,6 +522,18 @@ let offTaskFile: (() => void) | null = null
 
 function fileStateOf(it: MediaItem) {
   return fileStates.get(itemKey(it))
+}
+
+/** 判断当前对话某条消息是否正在下载中（角标状态优先，tasks store 兜底） */
+function isDownloading(messageId: number): boolean {
+  if (!selectedId.value) return false
+  if (fileStates.get(`${selectedId.value}:${messageId}`)?.state === 'downloading') return true
+  for (const byFile of Object.values(tasksStore.files)) {
+    for (const ev of Object.values(byFile)) {
+      if (ev.dialogId === selectedId.value && ev.messageId === messageId && ev.state === 'downloading') return true
+    }
+  }
+  return false
 }
 
 /** 从 tasks store 回填当前对话进行中的下载角标（路由切走再回来后恢复） */
