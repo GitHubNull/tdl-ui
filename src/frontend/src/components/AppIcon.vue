@@ -12,6 +12,8 @@ import scripts from '../assets/icons/nav-scripts.svg?raw'
 import logs from '../assets/icons/nav-logs.svg?raw'
 import settings from '../assets/icons/nav-settings.svg?raw'
 import account from '../assets/icons/nav-account.svg?raw'
+import tutorial from '../assets/icons/nav-tutorial.svg?raw'
+import about from '../assets/icons/nav-about.svg?raw'
 import themeLight from '../assets/icons/nav-theme-light.svg?raw'
 import themeDark from '../assets/icons/nav-theme-dark.svg?raw'
 import loginCode from '../assets/icons/login-code.svg?raw'
@@ -25,6 +27,8 @@ const icons: Record<string, string> = {
   logs,
   settings,
   account,
+  tutorial,
+  about,
   'theme-light': themeLight,
   'theme-dark': themeDark,
   'login-code': loginCode,

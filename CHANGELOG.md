@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.13.0] - 2026-07-31 00:36:44
+
+### Added
+- **使用教程页**：新增「教程」标签页（`/tutorial`），按 基础 → 中级 → 高级 三级组织 8 个章节（安装启动、账号登录、创建下载任务、代理与设置、脚本语法基础、脚本实战示例、内置函数参考、脚本调试）；左侧章节导航含分级分组与当前章节 h2/h3 小节目录（锚点平滑跳转），底部提供上一章/下一章切换。
+- **Markdown 渲染组件**：新增 `MarkdownView.vue` + `utils/markdown.ts`（markdown-it `html:false` 防注入 + highlight.js 按需注册 go/bash/yaml/json），样式全部使用 `--p-*` 变量适配明暗主题；新增依赖 `markdown-it`、`highlight.js`、`@types/markdown-it`。
+- **代码块一键复制与行号**：所有围栏代码块带工具栏（语言标签 + 复制按钮，复制成功显示"已复制 ✓"，剪贴板 API 失败回退 execCommand）；Go 脚本示例代码块附带行号列（sticky 定位，选中/复制不含行号）。
+- **教程内嵌真实图标**：`{{icon:xxx}}` 白名单占位符机制，界面总览表格等处直接渲染与左侧导航同套 `nav-*.svg` 图标（currentColor 随主题变色），替换原先与实际 UI 不符的 emoji。
+- **关于页**：新增「关于」标签页（`/about`），居中英雄区（logo/名称/版本徽章/简介/操作按钮）+ 技术栈网格 + 作者与许可证元信息卡片；版本号经 Vite `define` 注入 `__APP_VERSION__`（读取 package.json，消除硬编码）；外链经 `BrowserOpenURL` 打开系统浏览器。
+- **导航图标**：新增 `nav-tutorial.svg`（打开的书本）与 `nav-about.svg`（信息圆圈），注册至 `AppIcon.vue` 并同步到 `img/icons/navigation/`。
+
+### Fixed
+- 修复暗色主题下行内代码背景色因选择器特异性渗透到代码块内部导致缩进处出现浅色条的问题。
+
 ## [0.12.0] - 2026-07-30 23:39:21
 
 ### Added

@@ -6,6 +6,8 @@ import TasksPage from './pages/TasksPage.vue'
 import ScriptsPage from './pages/ScriptsPage.vue'
 import LogsPage from './pages/LogsPage.vue'
 import SettingsPage from './pages/SettingsPage.vue'
+import TutorialPage from './pages/TutorialPage.vue'
+import AboutPage from './pages/AboutPage.vue'
 
 // Wails 嵌入环境使用 hash 路由避免刷新丢路径
 export const router = createRouter({
@@ -19,5 +21,8 @@ export const router = createRouter({
     { path: '/scripts', component: ScriptsPage, meta: { title: '脚本', icon: 'scripts' } },
     { path: '/logs', component: LogsPage, meta: { title: '日志', icon: 'logs' } },
     { path: '/settings', component: SettingsPage, meta: { title: '设置', icon: 'settings' } },
+    { path: '/tutorial', component: TutorialPage, meta: { title: '教程', icon: 'tutorial' } },
+    { path: '/tutorial/:chapter', component: TutorialPage, meta: { hidden: true } },
+    { path: '/about', component: AboutPage, meta: { title: '关于', icon: 'about' } },
   ],
 })
