@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: backend_core
+title: tdl UI 桌面应用入口与 Wails 壳
+scope:
+    - src/main.go
+    - src/go.mod
+    - src/go.sum
+    - src/wails.json
+source_files: []
+depends_on: []
+related_to: []

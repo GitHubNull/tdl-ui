@@ -1,0 +1,19 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: master
+nodes_managed: true
+exported_at: "2026-07-30T13:39:28Z"
+modules:
+    backend_core:
+        dir_name: tdl UI 桌面应用入口与 Wails 壳
+        title: tdl UI 桌面应用入口与 Wails 壳
+        scope:
+            - src/main.go
+            - src/go.mod
+            - src/go.sum
+            - src/wails.json
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
