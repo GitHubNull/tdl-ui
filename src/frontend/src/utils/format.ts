@@ -36,6 +36,15 @@ export function fmtShortTime(unix?: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
+/** 秒数 → mm:ss 或 h:mm:ss（播放器时长显示） */
+export function fmtDuration(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return '0:00'
+  const s = Math.floor(sec % 60)
+  const m = Math.floor((sec / 60) % 60)
+  const h = Math.floor(sec / 3600)
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
+}
+
 /** 文件名 → 小写扩展名（无扩展名返回 '-'） */
 export function extOf(name: string): string {
   const i = name.lastIndexOf('.')
@@ -95,5 +104,36 @@ export function kindIcon(k: string): string {
       return 'pi pi-volume-up'
     default:
       return 'pi pi-file'
+  }
+}
+
+// ---- 视频可播性判定（WebView2 原生 <video> 支持范围） ----
+
+/** 可在应用内直接播放的视频扩展名（mkv/avi/wmv/flv/rmvb/ts 等不在其中，走下载后观看） */
+export const PLAYABLE_VIDEO_EXTS = ['mp4', 'm4v', 'mov', 'webm', 'ogv', 'ogg']
+
+/** 可在应用内直接播放的视频 MIME */
+export const PLAYABLE_VIDEO_MIMES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime']
+
+/** 该视频能否用原生播放器播放：MIME 优先，缺失时回退扩展名（避免对不支持格式白发请求） */
+export function isPlayableVideo(mime: string, name: string): boolean {
+  const m = (mime || '').trim().toLowerCase()
+  if (m) return PLAYABLE_VIDEO_MIMES.includes(m)
+  return PLAYABLE_VIDEO_EXTS.includes(extOf(name || ''))
+}
+
+/** HTMLMediaElement.error.code → 友好文案 */
+export function mediaErrorText(code?: number): string {
+  switch (code) {
+    case 1:
+      return '播放已被中止'
+    case 2:
+      return '网络中断，视频加载失败'
+    case 3:
+      return '视频解码失败，编码格式不受支持'
+    case 4:
+      return '该格式无法在应用内播放'
+    default:
+      return '视频加载失败，请重试或下载后观看'
   }
 }

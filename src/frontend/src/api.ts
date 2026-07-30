@@ -70,6 +70,7 @@ export const SettingsApi = {
 export const Chat = {
   listDialogs: ChatService.ListDialogs,
   listMedia: ChatService.ListMedia,
+  stopVideoPrefetch: ChatService.StopVideoPrefetch,
 }
 
 // ---- LogService ----
@@ -89,6 +90,16 @@ export function thumbURL(dialogId: number, dialogType: string, messageId: number
 
 export function previewURL(dialogId: number, dialogType: string, messageId: number): string {
   return `/media/preview?d=${dialogId}&m=${messageId}&t=${encodeURIComponent(dialogType)}`
+}
+
+/** 在线视频分段流（后端按 Range 从 Telegram 拉取，未下载时使用）。 */
+export function videoStreamURL(dialogId: number, dialogType: string, messageId: number): string {
+  return `/media/video?d=${dialogId}&m=${messageId}&t=${encodeURIComponent(dialogType)}`
+}
+
+/** 已下载文件字节流（http.ServeContent，原生 Range/seek，零 API 消耗）。 */
+export function localMediaURL(dialogId: number, messageId: number): string {
+  return `/media/local?d=${dialogId}&m=${messageId}`
 }
 
 // ---- 事件契约（与 internal/events/events.go 一致） ----

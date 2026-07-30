@@ -32,6 +32,8 @@ type Settings struct {
 	Theme string `json:"theme"`
 	// CacheDir 缩略图/预览缓存目录，空则为 <DataDir>/cache
 	CacheDir string `json:"cacheDir" yaml:"-"`
+	// TempDir 在线视频边下边播的分段暂存目录，空则为 <DataDir>/tmp
+	TempDir string `json:"tempDir" yaml:"-"`
 	// LoggedInUserID 最近一次登录成功的用户 ID（仅用于界面展示）
 	LoggedInUserID int64 `json:"loggedInUserId"`
 	// LoggedInUsername 最近一次登录成功的用户名（仅用于界面展示）
@@ -54,6 +56,7 @@ type yamlConfig struct {
 	} `yaml:"download"`
 	Storage struct {
 		CacheDir string `yaml:"cacheDir"`
+		TempDir  string `yaml:"tempDir"`
 	} `yaml:"storage"`
 	Log     logging.LogSettings `yaml:"log"`
 	Session struct {
@@ -72,6 +75,7 @@ func settingsToYAML(s Settings) yamlConfig {
 	y.Download.Limit = s.Limit
 	y.Download.PoolSize = s.PoolSize
 	y.Storage.CacheDir = s.CacheDir
+	y.Storage.TempDir = s.TempDir
 	y.Log = s.Log
 	y.Session.Proxy = s.Proxy
 	y.Session.LoggedInUserID = s.LoggedInUserID
@@ -89,6 +93,7 @@ func yamlToSettings(y yamlConfig) Settings {
 		PoolSize:         y.Download.PoolSize,
 		Theme:            y.App.Theme,
 		CacheDir:         y.Storage.CacheDir,
+		TempDir:          y.Storage.TempDir,
 		LoggedInUserID:   y.Session.LoggedInUserID,
 		LoggedInUsername: y.Session.LoggedInUsername,
 		Log:              y.Log,
@@ -120,6 +125,7 @@ func NewManager() (*Manager, error) {
 		filepath.Join(dataDir, "kv"),
 		filepath.Join(dataDir, "scripts"),
 		filepath.Join(dataDir, "cache"),
+		filepath.Join(dataDir, "tmp"),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, err
@@ -168,6 +174,17 @@ func (m *Manager) CacheDir() string {
 	m.mu.RUnlock()
 	if dir == "" {
 		return filepath.Join(m.dataDir, "cache")
+	}
+	return dir
+}
+
+// TempDir 视频临时分段目录：设置为空时回落到 <DataDir>/tmp。
+func (m *Manager) TempDir() string {
+	m.mu.RLock()
+	dir := m.settings.TempDir
+	m.mu.RUnlock()
+	if dir == "" {
+		return filepath.Join(m.dataDir, "tmp")
 	}
 	return dir
 }
@@ -222,6 +239,13 @@ func (m *Manager) Update(s Settings) error {
 	// 非空缓存目录：校验可创建且可写，失败则阻断保存。
 	if s.CacheDir != "" {
 		if err := verifyWritableDir(s.CacheDir); err != nil {
+			return err
+		}
+	}
+
+	// 非空视频临时目录：同口径校验可创建且可写。
+	if s.TempDir != "" {
+		if err := verifyWritableDir(s.TempDir); err != nil {
 			return err
 		}
 	}

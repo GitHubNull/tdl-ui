@@ -84,3 +84,30 @@ func TestUpdateValidatesProxy(t *testing.T) {
 		}
 	}
 }
+
+// TestTempDirFallback 视频临时目录：空值回落 <DataDir>/tmp，非空值原样返回。
+func TestTempDirFallback(t *testing.T) {
+	m := newTestManager(t)
+	if got, want := m.TempDir(), filepath.Join(m.DataDir(), "tmp"); got != want {
+		t.Errorf("空 TempDir 应回落 %q，实际 %q", want, got)
+	}
+	custom := filepath.Join(t.TempDir(), "video-tmp")
+	s := m.Get()
+	s.TempDir = custom
+	if err := m.Update(s); err != nil {
+		t.Fatalf("Update 失败: %v", err)
+	}
+	if got := m.TempDir(); got != custom {
+		t.Errorf("自定义 TempDir 应为 %q，实际 %q", custom, got)
+	}
+}
+
+// TestTempDirYAMLRoundTrip TempDir 经 yamlConfig 往返不丢失。
+func TestTempDirYAMLRoundTrip(t *testing.T) {
+	s := defaultSettings(t.TempDir())
+	s.TempDir = `D:\video-tmp`
+	got := yamlToSettings(settingsToYAML(s))
+	if got.TempDir != s.TempDir {
+		t.Errorf("TempDir 往返应保留 %q，实际 %q", s.TempDir, got.TempDir)
+	}
+}

@@ -84,7 +84,11 @@
                         @error="thumbFailed.add(itemKey(item))"
                       />
                       <i v-else :class="kindIcon(item.kind)" class="thumb-icon" />
-                      <i v-if="item.kind === 'video' && hasThumb(item)" class="pi pi-play-circle play-badge" />
+                      <i
+                        v-if="item.kind === 'video' && hasThumb(item)"
+                        class="pi pi-play-circle play-badge"
+                        v-tooltip.top="'单击播放预览'"
+                      />
 
                       <Checkbox
                         class="card-check"
@@ -840,7 +844,8 @@ watch(
   font-size: 2rem;
   color: var(--mc-overlay-fg);
   text-shadow: 0 1px 4px var(--mc-overlay-shadow);
-  pointer-events: none;
+  /* 受悬停以弹出播放提示；单击仍冒泡到 .thumb 走预览逻辑 */
+  cursor: pointer;
 }
 
 .card-check {

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.0] - 2026-07-30 23:39:21
+
+### Added
+- **自定义视频播放器**：新建 `VideoPlayer.vue` 组件，移除原生 `<video controls>`，基于 PrimeVue Button/Slider 自建控制栏（播放/暂停、可拖拽进度条含 buffered 区段显示、时间显示、音量滑条与静音、全屏切换），播放中鼠标静止 3s 自动隐藏控制栏，暂停时常显。
+- **播放器键盘快捷键**：视频条目预览时 ←/→ 快退/快进 10 秒、↑/↓ 音量 ±10%、Space 播放暂停、M 静音、F 全屏；非视频条目保持 ←/→ 切换媒体（`utils/format.ts` 新增 `fmtDuration`）。
+- **视频磁盘分段缓存（边下边播）**：新增 `videodisk.go`，在线视频分段落盘 `<TempDir>/video/<dialogID>_<msgID>/<partIdx>.part`，2GB 上限按 mtime LRU 淘汰；缓存查找链升级为 内存 LRU → 磁盘 → Telegram（`video.go`），重看/回拖命中磁盘不重复拉取。
+- **后台顺序预取**：`videoPrefetcher` 单活跃视频从当前播放位置顺序预取全部分段；新增 `StopVideoPrefetch` 绑定，关闭预览/切换条目时停止预取省流量。
+- **视频临时目录设置**：`Settings.TempDir` 新配置项（config.yaml + 设置页，含浏览按钮与可写校验），留空回落 `<数据目录>/tmp`；「清空缓存」联动清理视频临时分段。
+
+### Fixed
+- 修复暂停后 seek 被 `canplay` 事件强制恢复播放的问题（自动播放仅首次 canplay 触发）。
+- 修复点击视频预览四周空白区域无法关闭预览的问题（`.mp-video-wrap` 铺满舞台吞掉了 mousedown，改为 wrap 自身被点击时关闭）。
+
 ## [0.11.0] - 2026-07-30 21:30:05
 
 ### Added

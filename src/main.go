@@ -131,8 +131,16 @@ func main() {
 		MinWidth:  960,
 		MinHeight: 640,
 		AssetServer: &assetserver.Options{
-			Assets:  assets,
-			Handler: services.NewMediaHandler(chatSvc), // /media/thumb 与 /media/preview
+			Assets: assets,
+			// /media/thumb、/media/preview、/media/local、/media/video
+			// 已下载视频直接由磁盘回放（零 API 消耗），故注入本地文件解析器
+			Handler: services.NewMediaHandler(chatSvc, func(dialogID int64, messageID int) (string, bool) {
+				f, ok, err := taskManager.DownloadedFile(dialogID, messageID)
+				if err != nil || !ok {
+					return "", false
+				}
+				return f.Path, true
+			}),
 		},
 		BackgroundColour: &options.RGBA{R: 250, G: 250, B: 251, A: 1},
 		OnStartup: func(ctx context.Context) {

@@ -106,10 +106,19 @@ type chatJob struct {
 	done chan error
 }
 
+// chatQueue 任务队列种类：列表查询、缩略图、视频分段三条互不阻塞的通道。
+type chatQueue int
+
+const (
+	queueList chatQueue = iota
+	queueThumb
+	queueVideo
+)
+
 // ChatService 对话与媒体查询。
 // 复用常驻 Telegram 连接（懒启动、断线自动重建），避免每次翻页重建连接的开销；
 // 列表查询经 jobs 通道串行化，缩略图/预览图走独立的 thumbJobs 队列（小并发度），
-// 避免单张大图预览阻塞列表与其余缩略图加载（ARC-04）。
+// 视频分段走 videoJobs 队列，避免单张大图预览或视频推流阻塞列表与缩略图加载（ARC-04）。
 type ChatService struct {
 	cfg *config.Manager
 	kv  kv.Storage
@@ -120,25 +129,49 @@ type ChatService struct {
 	cancel    context.CancelFunc
 	jobs      chan chatJob
 	thumbJobs chan chatJob
+	videoJobs chan chatJob
 	dead      chan struct{}
 
 	// 缩略图/预览图磁盘缓存（软件运行目录 cache/ 下）
 	thumbs *thumbCache
+	// 视频元信息与分段内存缓存（流式播放用）
+	videos *videoCache
+	// 视频分段磁盘缓存（临时目录 video/ 下，边下边播的持久层）
+	videoDisk *videoDiskCache
+	// 后台顺序预取控制器（单活跃视频）
+	prefetch videoPrefetcher
 
 	// runClient 建连并驱动任务循环，可注入以便测试；为 nil 时使用真实 Telegram 客户端。
-	runClient func(ctx context.Context, ready chan<- error, jobs, thumbJobs <-chan chatJob)
+	runClient func(ctx context.Context, ready chan<- error, jobs, thumbJobs, videoJobs <-chan chatJob)
 }
 
 // NewChatService 创建对话服务。
 func NewChatService(cfg *config.Manager, kvs kv.Storage) *ChatService {
-	return &ChatService{cfg: cfg, kv: kvs, thumbs: newThumbCache(func() string { return cfg.CacheDir() })}
+	return &ChatService{
+		cfg:       cfg,
+		kv:        kvs,
+		thumbs:    newThumbCache(func() string { return cfg.CacheDir() }),
+		videos:    newVideoCache(),
+		videoDisk: newVideoDiskCache(func() string { return cfg.TempDir() }),
+	}
 }
 
-// ClearThumbCache 清空缩略图/预览图磁盘缓存（设置页「清空缓存」入口，SVC-18）。
-func (s *ChatService) ClearThumbCache() error { return s.thumbs.Clear() }
+// ClearThumbCache 清空缩略图/预览图磁盘缓存、视频内存缓存与视频磁盘分段（设置页「清空缓存」入口，SVC-18）。
+func (s *ChatService) ClearThumbCache() error {
+	if s.videos != nil {
+		s.videos.Clear()
+	}
+	if s.videoDisk != nil {
+		if err := s.videoDisk.Clear(); err != nil {
+			return err
+		}
+	}
+	return s.thumbs.Clear()
+}
 
 // Stop 关闭常驻连接（登出/重登后会话失效时调用），下次查询自动重建。
 func (s *ChatService) Stop() {
+	s.prefetch.stop() // 会话即将失效，后台预取一并取消
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cancel != nil {
@@ -149,6 +182,7 @@ func (s *ChatService) Stop() {
 
 // StopAndWait 停止常驻连接并等待执行协程退出（应用关闭编排用）。
 func (s *ChatService) StopAndWait(timeout time.Duration) {
+	s.prefetch.stop()
 	s.mu.Lock()
 	if s.cancel != nil {
 		logChat.Infof("停止常驻 Telegram 连接")
@@ -240,23 +274,32 @@ func (s *ChatService) ListMedia(q MediaQuery) (*MediaPage, error) {
 
 // invoke 将列表/查询闭包投递到串行队列执行，带超时与断线感知。
 func (s *ChatService) invoke(ctx context.Context, fn func(ctx context.Context, api *tg.Client) error) error {
-	return s.submit(ctx, false, fn)
+	return s.submit(ctx, queueList, fn)
 }
 
 // invokeThumb 将缩略图/预览图拉取投递到独立队列，不与列表查询互相阻塞。
 func (s *ChatService) invokeThumb(ctx context.Context, fn func(ctx context.Context, api *tg.Client) error) error {
-	return s.submit(ctx, true, fn)
+	return s.submit(ctx, queueThumb, fn)
 }
 
-func (s *ChatService) submit(ctx context.Context, thumb bool, fn func(ctx context.Context, api *tg.Client) error) error {
+// invokeVideo 将视频元信息解析/分段拉取投递到独立队列，不与列表、缩略图互相阻塞。
+func (s *ChatService) invokeVideo(ctx context.Context, fn func(ctx context.Context, api *tg.Client) error) error {
+	return s.submit(ctx, queueVideo, fn)
+}
+
+func (s *ChatService) submit(ctx context.Context, queue chatQueue, fn func(ctx context.Context, api *tg.Client) error) error {
 	if err := s.ensureStarted(); err != nil {
 		return err
 	}
 
 	s.mu.Lock()
 	jobs, dead := s.jobs, s.dead
-	if thumb {
+	switch queue {
+	case queueThumb:
 		jobs = s.thumbJobs
+	case queueVideo:
+		jobs = s.videoJobs
+	case queueList:
 	}
 	s.mu.Unlock()
 
@@ -314,6 +357,7 @@ func (s *ChatService) start() error {
 	runCtx, cancel := context.WithCancel(context.Background())
 	jobs := make(chan chatJob)
 	thumbJobs := make(chan chatJob)
+	videoJobs := make(chan chatJob)
 	dead := make(chan struct{})
 	ready := make(chan error, 1)
 
@@ -324,7 +368,7 @@ func (s *ChatService) start() error {
 
 	go func() {
 		defer cancel()
-		run(runCtx, ready, jobs, thumbJobs)
+		run(runCtx, ready, jobs, thumbJobs, videoJobs)
 
 		// 先宣告退出再抢锁复位，确保任何等待 dead 的一方不会与本协程互锁
 		close(dead)
@@ -371,15 +415,17 @@ func (s *ChatService) start() error {
 	s.cancel = cancel
 	s.jobs = jobs
 	s.thumbJobs = thumbJobs
+	s.videoJobs = videoJobs
 	s.dead = dead
 	logChat.Infof("Telegram 连接就绪")
 	return nil
 }
 
 // runTelegramClient 真实客户端：建连 → 校验登录态 → 执行查询任务直到 ctx 取消。
-// 列表查询单 worker 串行；缩略图队列 2 个 worker，单张大图预览最多占用一个。
+// 列表查询单 worker 串行；缩略图队列 2 个 worker，单张大图预览最多占用一个；
+// 视频队列 2 个 worker，单次仅拉取一个 1MB 分段，暂停播放不会长期占用 worker。
 // 就绪前的任何错误都会写入 ready，保证调用方能拿到具体原因。
-func (s *ChatService) runTelegramClient(ctx context.Context, ready chan<- error, jobs, thumbJobs <-chan chatJob) {
+func (s *ChatService) runTelegramClient(ctx context.Context, ready chan<- error, jobs, thumbJobs, videoJobs <-chan chatJob) {
 	kvd, err := s.kv.Open(engine.Namespace)
 	if err != nil {
 		ready <- errors.Wrap(err, "open kv")
@@ -427,9 +473,11 @@ func (s *ChatService) runTelegramClient(ctx context.Context, ready chan<- error,
 		}
 
 		var wg sync.WaitGroup
-		wg.Add(2)
+		wg.Add(4)
 		go func() { defer wg.Done(); worker(thumbJobs) }()
 		go func() { defer wg.Done(); worker(thumbJobs) }()
+		go func() { defer wg.Done(); worker(videoJobs) }()
+		go func() { defer wg.Done(); worker(videoJobs) }()
 		worker(jobs)
 		wg.Wait() // 确保所有 worker 退出后再关闭客户端
 		return nil

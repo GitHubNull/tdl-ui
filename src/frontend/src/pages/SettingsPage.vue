@@ -85,11 +85,19 @@
         <span class="hint">缩略图与预览缓存的存放位置，保存后立即生效</span>
       </div>
       <div class="form-field">
+        <label for="temp-dir">视频临时目录</label>
+        <div class="form-row">
+          <InputText id="temp-dir" v-model="store.settings.tempDir" class="grow" placeholder="留空使用 <数据目录>\tmp" />
+          <Button icon="pi pi-folder-open" severity="secondary" outlined v-tooltip.top="'浏览…'" @click="browseTempDir" />
+        </div>
+        <span class="hint">在线视频边下边播的分段暂存位置，上限 2GB 自动清理，保存后立即生效</span>
+      </div>
+      <div class="form-field">
         <label>缓存管理</label>
         <div class="form-row">
           <Button label="清空缓存" icon="pi pi-trash" severity="secondary" outlined @click="onClearCache" />
         </div>
-        <span class="hint">删除缓存目录下的缩略图与预览文件，不影响已下载的内容</span>
+        <span class="hint">删除缓存目录下的缩略图、预览文件与视频临时分段，不影响已下载的内容</span>
       </div>
 
       <h2 class="section-title">日志</h2>
@@ -235,10 +243,19 @@ async function browseCacheDir() {
   }
 }
 
+async function browseTempDir() {
+  try {
+    const picked = await Download.selectDirectory()
+    if (picked) store.settings.tempDir = picked
+  } catch (e: any) {
+    toast.add({ severity: 'error', summary: '选择目录失败', detail: String(e), life: 4000 })
+  }
+}
+
 function onClearCache() {
   confirm.require({
     header: '清空缓存',
-    message: '将删除缓存目录下的缩略图与预览文件，不影响已下载的内容。确定继续？',
+    message: '将删除缓存目录下的缩略图、预览文件与视频临时分段，不影响已下载的内容。确定继续？',
     icon: 'pi pi-exclamation-triangle',
     acceptProps: { label: '清空', severity: 'danger' },
     rejectProps: { label: '取消', severity: 'secondary', outlined: true },
