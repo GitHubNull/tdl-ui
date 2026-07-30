@@ -1,0 +1,15 @@
+schema_version: 1
+module_path: ""
+title: tdl UI 桌面客户端（Wails + Vue 3）
+scope:
+    - README.md
+    - README_EN.md
+    - .gitignore
+    - .gitmodules
+    - CHANGELOG.md
+    - DISCLAIMER.md
+    - LICENSE
+    - agent.md
+source_files: []
+depends_on: []
+related_to: []

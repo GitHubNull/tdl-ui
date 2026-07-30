@@ -3,11 +3,28 @@ schema_version: 1
 locale: zh-CN
 branch: master
 nodes_managed: true
-exported_at: "2026-07-30T13:39:28Z"
+exported_at: "2026-07-30T15:44:07Z"
 modules:
+    "":
+        dir_name: tdl UI 桌面客户端（Wails + Vue 3）
+        title: tdl UI 桌面客户端（Wails + Vue 3）
+        scope:
+            - README.md
+            - README_EN.md
+            - .gitignore
+            - .gitmodules
+            - CHANGELOG.md
+            - DISCLAIMER.md
+            - LICENSE
+            - agent.md
+        source_files: []
+        children:
+            - backend_core
+        depends_on: []
+        related_to: []
     backend_core:
-        dir_name: tdl UI 桌面应用入口与 Wails 壳
-        title: tdl UI 桌面应用入口与 Wails 壳
+        dir_name: Wails 桌面应用入口与装配层
+        title: Wails 桌面应用入口与装配层
         scope:
             - src/main.go
             - src/go.mod
