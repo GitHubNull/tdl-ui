@@ -1,6 +1,8 @@
 package services
 
 import (
+	"os"
+
 	"github.com/go-faster/errors"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -116,4 +118,51 @@ func (s *DownloadService) SelectDirectory() (string, error) {
 		Title:            "选择下载目录",
 		DefaultDirectory: s.cfg.Get().DownloadDir,
 	})
+}
+
+// DownloadedFile 对话内已完成下载的消息文件（媒体页"已下载"标记数据源）。
+type DownloadedFile struct {
+	MessageID int    `json:"messageId"`
+	Path      string `json:"path"`
+	Size      int64  `json:"size"`
+}
+
+// ListDownloadedMessages 返回对话内已下载完成且磁盘文件仍存在的消息列表；
+// 同一消息多次下载时保留最新记录。
+func (s *DownloadService) ListDownloadedMessages(dialogID int64) ([]DownloadedFile, error) {
+	files, err := s.manager.DownloadedFiles(dialogID)
+	if err != nil {
+		logDownload.Errorf("查询已下载文件失败: dialog=%d err=%v", dialogID, err)
+		return nil, err
+	}
+	// 按 updated_at 升序遍历，后写覆盖即同 messageId 取最新；磁盘已删的陈旧记录不计入。
+	latest := make(map[int]DownloadedFile, len(files))
+	for _, f := range files {
+		if st, err := os.Stat(f.Path); err != nil || st.IsDir() {
+			continue
+		}
+		latest[f.MessageID] = DownloadedFile{MessageID: f.MessageID, Path: f.Path, Size: f.Size}
+	}
+	out := make([]DownloadedFile, 0, len(latest))
+	for _, f := range latest {
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+// OpenDownloadedFile 用系统默认程序打开指定消息已下载的文件（双击打开入口）。
+func (s *DownloadService) OpenDownloadedFile(dialogID int64, messageID int) error {
+	f, ok, err := s.manager.DownloadedFile(dialogID, messageID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("该文件尚未下载或已被删除")
+	}
+	logDownload.Infof("打开已下载文件: dialog=%d msg=%d path=%s", dialogID, messageID, f.Path)
+	if err := openFile(f.Path); err != nil {
+		logDownload.Errorf("打开文件失败: path=%s err=%v", f.Path, err)
+		return errors.New("该文件尚未下载或已被删除")
+	}
+	return nil
 }

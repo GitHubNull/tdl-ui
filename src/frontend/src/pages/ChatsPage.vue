@@ -71,8 +71,9 @@
                     :class="{ selected: selectedMsgs.has(item.messageId) }"
                     :style="cardStyle(item)"
                     @click="toggleSelect(item)"
+                    @dblclick="onCardDblClick(item)"
                   >
-                    <div class="thumb" @click.stop="openPreview(item)">
+                    <div class="thumb" @click.stop="onThumbClick(item)" @dblclick.stop>
                       <img
                         v-if="hasThumb(item)"
                         :src="thumbURL(item.dialogId, selectedType, item.messageId)"
@@ -105,7 +106,14 @@
                         <i v-if="fileStateOf(item)!.state === 'downloading'" class="pi pi-spin pi-spinner" />
                         <i v-else-if="fileStateOf(item)!.state === 'done'" class="pi pi-check" />
                         <i v-else class="pi pi-times" />
-                        <template v-if="fileStateOf(item)!.state === 'downloading'">{{ fileStateOf(item)!.pct }}%</template>
+                        <template v-if="fileStateOf(item)!.state === 'downloading'">下载中 {{ fileStateOf(item)!.pct }}%</template>
+                      </span>
+                      <span
+                        v-else-if="downloadedMap.has(item.messageId)"
+                        class="dl-state done"
+                        v-tooltip.top="'已下载，双击打开'"
+                      >
+                        <i class="pi pi-check" /> 已下载
                       </span>
                     </div>
                     <div class="card-info">
@@ -152,13 +160,16 @@
     </div>
 
     <NewTaskDialog v-model:visible="dlVisible" :selection="dlSelection" @created="onTaskCreated" />
+    <ConfirmDialog />
     <MediaPreview
       v-model:visible="previewVisible"
       v-model:index="previewIndex"
       :items="items"
       :dialog-type="selectedType"
       :has-more="hasMore"
+      :downloaded-ids="downloadedIds"
       @download="downloadOne"
+      @open="openDownloaded"
       @load-more="loadMore"
     />
   </div>
@@ -168,9 +179,11 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
+import { useConfirm } from 'primevue/useconfirm'
 import emptyChats from '../assets/illustrations/empty-chats.svg'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
+import ConfirmDialog from 'primevue/confirmdialog'
 import Message from 'primevue/message'
 import Tag from 'primevue/tag'
 
@@ -178,19 +191,22 @@ import DialogListPanel from '../components/DialogListPanel.vue'
 import MediaPreview from '../components/MediaPreview.vue'
 import MediaToolbar from '../components/MediaToolbar.vue'
 import NewTaskDialog from '../components/NewTaskDialog.vue'
-import { EVENT_TASK_FILE, on, thumbURL } from '../api'
+import { EVENT_TASK_FILE, on, thumbURL, Download } from '../api'
 import type { DialogView, FileEvent, MediaItem } from '../types'
 import { useMediaPager, type AppliedFilters } from '../composables/useMediaPager'
 import { useWaterfall, gridVars, type MediaLayout } from '../composables/useWaterfall'
 import { extOf, fmtDate, fmtSize, kindIcon, pad, typeLabel, typeSeverity } from '../utils/format'
 import { useAuthStore } from '../stores/auth'
 import { useChatsStore } from '../stores/chats'
+import { useTasksStore } from '../stores/tasks'
 
 const auth = useAuthStore()
 const chats = useChatsStore()
+const tasksStore = useTasksStore()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const confirm = useConfirm()
 
 // ---- 对话选中 ----
 
@@ -212,6 +228,8 @@ watch(selectedId, (id) => {
   clearSelection()
   jumpMonth.value = null
   thumbFailed.clear()
+  refreshDownloaded(id)
+  restoreFileStates()
   const restored = switchTo(id)
   if (!restored) loadMore()
 })
@@ -375,16 +393,100 @@ function openDownload(messageIds: number[]) {
 }
 
 function downloadOne(it: MediaItem) {
+  if (downloadedMap.has(it.messageId)) {
+    confirm.require({
+      header: '重新下载',
+      message: '该文件已下载，是否重新下载？',
+      icon: 'pi pi-exclamation-triangle',
+      acceptProps: { label: '重新下载' },
+      rejectProps: { label: '取消', severity: 'secondary', outlined: true },
+      accept: () => openDownload([it.messageId]),
+    })
+    return
+  }
   openDownload([it.messageId])
 }
 
 function downloadSelected() {
-  openDownload([...selectedMsgs.value])
+  const ids = [...selectedMsgs.value]
+  const dupCount = ids.filter((id) => downloadedMap.has(id)).length
+  if (dupCount > 0) {
+    confirm.require({
+      header: '重新下载',
+      message: `选中文件中有 ${dupCount} 个已下载，是否重新下载？`,
+      icon: 'pi pi-exclamation-triangle',
+      acceptProps: { label: '重新下载' },
+      rejectProps: { label: '取消', severity: 'secondary', outlined: true },
+      accept: () => openDownload(ids),
+    })
+    return
+  }
+  openDownload(ids)
 }
 
 function onTaskCreated() {
   clearSelection()
   toast.add({ severity: 'success', summary: '下载任务已创建', detail: '可到「下载」页查看进度', life: 3000 })
+}
+
+// ---- 已下载标记与双击打开 ----
+
+/** 当前对话已下载消息：messageId → 本地文件路径 */
+const downloadedMap = reactive(new Map<number, string>())
+const downloadedIds = computed(() => new Set(downloadedMap.keys()))
+
+/** 切对话时重拉已下载列表（失败静默，不阻塞媒体加载） */
+async function refreshDownloaded(id: number | null) {
+  downloadedMap.clear()
+  if (!id || !auth.loggedIn) return
+  try {
+    const list = await Download.listDownloadedMessages(id)
+    if (selectedId.value !== id) return // 返回时已切走，丢弃防串对话
+    for (const f of list ?? []) downloadedMap.set(f.messageId, f.path)
+  } catch {
+    /* 非 Wails 环境或查询失败静默 */
+  }
+}
+
+/** 双击已下载卡片：调系统默认程序打开文件 */
+async function openDownloaded(it: MediaItem) {
+  if (!downloadedMap.has(it.messageId)) return
+  try {
+    await Download.openDownloadedFile(it.dialogId, it.messageId)
+  } catch (e: any) {
+    // 磁盘文件已被删：同步摘掉标记，避免持续误导
+    downloadedMap.delete(it.messageId)
+    toast.add({ severity: 'warn', summary: '打开文件失败', detail: String(e?.message ?? e), life: 5000 })
+  }
+}
+
+function onCardDblClick(it: MediaItem) {
+  // 卡片单击是 toggleSelect，双击两次 toggle 净效果为零，仅需处理打开
+  openDownloaded(it)
+}
+
+// 缩略图区域：单击开预览会遮住第二击，对已下载项用延时区分单击/双击
+const DBLCLICK_DELAY_MS = 250
+let thumbClickTimer: ReturnType<typeof setTimeout> | null = null
+let thumbClickMsgId = 0
+
+function onThumbClick(it: MediaItem) {
+  if (!downloadedMap.has(it.messageId)) {
+    openPreview(it)
+    return
+  }
+  if (thumbClickTimer && thumbClickMsgId === it.messageId) {
+    clearTimeout(thumbClickTimer)
+    thumbClickTimer = null
+    openDownloaded(it)
+    return
+  }
+  if (thumbClickTimer) clearTimeout(thumbClickTimer)
+  thumbClickMsgId = it.messageId
+  thumbClickTimer = setTimeout(() => {
+    thumbClickTimer = null
+    openPreview(it)
+  }, DBLCLICK_DELAY_MS)
 }
 
 // ---- 下载状态回填（task:file 事件 → 卡片角标） ----
@@ -397,6 +499,19 @@ let offTaskFile: (() => void) | null = null
 
 function fileStateOf(it: MediaItem) {
   return fileStates.get(itemKey(it))
+}
+
+/** 从 tasks store 回填当前对话进行中的下载角标（路由切走再回来后恢复） */
+function restoreFileStates() {
+  fileStates.clear()
+  if (!selectedId.value) return
+  for (const byFile of Object.values(tasksStore.files)) {
+    for (const ev of Object.values(byFile)) {
+      if (ev.dialogId !== selectedId.value || ev.state !== 'downloading') continue
+      const pct = ev.total > 0 ? Math.round((ev.downloaded / ev.total) * 100) : 0
+      fileStates.set(`${ev.dialogId}:${ev.messageId}`, { state: ev.state, pct })
+    }
+  }
 }
 
 // ---- 生命周期 ----
@@ -417,6 +532,10 @@ onMounted(() => {
     const pct = ev.total > 0 ? Math.round((ev.downloaded / ev.total) * 100) : 0
     fileStates.set(key, { state: ev.state, pct })
     if (ev.state === 'done') {
+      // 完成即刻登记"已下载"，角标短暂展示后自然退化为常驻 chip
+      if (ev.dialogId === selectedId.value && ev.path) {
+        downloadedMap.set(ev.messageId, ev.path)
+      }
       // 完成角标短暂展示后移除，避免长会话下集合无限增长
       setTimeout(() => {
         if (fileStates.get(key)?.state === 'done') fileStates.delete(key)
@@ -443,6 +562,7 @@ onBeforeUnmount(() => {
   saveSnapshot() // 离开页面保留当前对话浏览进度（LRU 缓存）
   sentinelObserver?.disconnect()
   offTaskFile?.()
+  if (thumbClickTimer) clearTimeout(thumbClickTimer)
 })
 
 // 登出后清空选中与媒体（对话列表由 DialogListPanel 负责）

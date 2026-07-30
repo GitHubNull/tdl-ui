@@ -17,7 +17,7 @@ import (
 var logStore = logging.L("store")
 
 // schemaVersion 当前数据库结构版本，配合 PRAGMA user_version 做手写迁移。
-const schemaVersion = 3
+const schemaVersion = 4
 
 // Store 封装单个 SQLite 连接（单进程单连接池，配合 WAL + busy_timeout 规避 Windows 锁竞争）。
 type Store struct {
@@ -132,6 +132,11 @@ func (s *Store) migrate() error {
 	if version < 3 {
 		if err := s.migrateV3(); err != nil {
 			return errors.Wrap(err, "迁移至 v3 失败")
+		}
+	}
+	if version < 4 {
+		if err := s.migrateV4(); err != nil {
+			return errors.Wrap(err, "迁移至 v4 失败")
 		}
 	}
 
@@ -285,6 +290,24 @@ func (s *Store) migrateV3() error {
 		return errors.Wrap(err, "新增 script_src 列失败")
 	}
 	if _, err := tx.Exec("PRAGMA user_version = 3"); err != nil {
+		return errors.Wrap(err, "写入 user_version 失败")
+	}
+	return tx.Commit()
+}
+
+// migrateV4 files 表新增 (dialog_id, message_id) 索引：
+// 对话媒体页按对话查询已下载文件（"已下载"标记）走索引而非全表扫。
+func (s *Store) migrateV4() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_files_dialog_msg ON files(dialog_id, message_id)`); err != nil {
+		return errors.Wrap(err, "创建 idx_files_dialog_msg 索引失败")
+	}
+	if _, err := tx.Exec("PRAGMA user_version = 4"); err != nil {
 		return errors.Wrap(err, "写入 user_version 失败")
 	}
 	return tx.Commit()

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0] - 2026-07-30 20:26:52
+
+### Added
+- **对话媒体下载状态增强**：已下载标记 + 重复下载确认框 + 双击系统默认程序打开 + 下载中实时进度角标（含跨页面状态恢复）
+  - 后端：store 层新增 `idx_files_dialog_msg` 索引与 `ListDoneFilesByDialog`/`GetDoneFile` 查询；engine 层 `TaskFile` 补 `DialogID`/`MessageID` 并写库（修复原有关联缺口），`FileEvent` 携带最终路径；services 层新增 `ListDownloadedMessages`（os.Stat 过滤磁盘已删文件 + 同 messageId 去重）与 `OpenDownloadedFile`
+  - 前端：`ChatsPage` 新增 `downloadedMap` 与已下载 chip、下载中角标文案改为"下载中 N%"、重复下载 ConfirmDialog（单文件/批量）、双击打开（缩略图区 250ms 延时区分单击/双击）、切换对话/路由时状态恢复（tasks store 回填 downloading 角标）
+  - 前端：`MediaPreview` 新增 `downloadedIds` prop 与 `open` 事件，顶栏显示"已下载"Tag 与"打开文件"按钮
+- 数据库迁移：schemaVersion 3→4，新增 `idx_files_dialog_msg` 索引
+
+### Fixed
+- 修复 engine 层写 files 表时未携带 `dialog_id`/`message_id` 的既有缺口，仅新下载记录具备对话关联。
+
 ## [0.8.0] - 2026-07-29 21:14:08
 
 ### Added

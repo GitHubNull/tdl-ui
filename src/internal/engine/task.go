@@ -52,6 +52,9 @@ type TaskFile struct {
 	Size int64  `json:"size"`
 	// State: downloading / done / failed
 	State string `json:"state"`
+	// 来源对话与消息（对话媒体页"已下载"标记依赖此关联）
+	DialogID  int64 `json:"dialogId,omitempty"`
+	MessageID int   `json:"messageId,omitempty"`
 }
 
 // TaskView 任务视图（前端展示 / task:update 事件负载）。
@@ -176,6 +179,7 @@ func (t *Task) addFile(f TaskFile) {
 		// 文件记录写回可能发生在暂停/取消清理阶段，不得随任务 ctx 中断（STO-03）。
 		if err := t.mgr.deps.Store.UpsertFile(context.Background(), store.File{
 			TaskID: t.ID, Name: f.Name, Path: f.Path, Size: f.Size, State: f.State,
+			DialogID: f.DialogID, MessageID: f.MessageID,
 		}); err != nil {
 			logEngine.Errorf("写入文件记录失败: id=%s err=%v", t.ID, err)
 		}
@@ -209,6 +213,7 @@ func (t *Task) finishFile(oldPath string, f TaskFile) {
 	if t.mgr.deps.Store != nil {
 		if err := t.mgr.deps.Store.FinishFile(context.Background(), t.ID, oldPath, store.File{
 			TaskID: t.ID, Name: f.Name, Path: f.Path, Size: f.Size, State: f.State,
+			DialogID: f.DialogID, MessageID: f.MessageID,
 		}); err != nil {
 			logEngine.Errorf("完成文件记录失败: id=%s err=%v", t.ID, err)
 		}

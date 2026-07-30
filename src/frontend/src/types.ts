@@ -49,4 +49,13 @@ export interface FileEvent {
   downloaded: number
   state: 'downloading' | 'done' | 'failed'
   error?: string
+  /** 仅 done 时携带：最终文件路径 */
+  path?: string
+}
+
+/** services.DownloadedFile（对话内已下载消息，"已下载"标记数据源） */
+export interface DownloadedFile {
+  messageId: number
+  path: string
+  size: number
 }

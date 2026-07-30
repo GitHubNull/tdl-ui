@@ -27,6 +27,8 @@ type FileEvent struct {
 	// State: downloading / done / failed
 	State string `json:"state"`
 	Error string `json:"error,omitempty"`
+	// Path 仅 done 时携带：最终文件路径，供前端完成瞬间切换"已下载"态
+	Path string `json:"path,omitempty"`
 }
 
 // progressEmitInterval 单文件进度事件的最小推送间隔，避免高频刷屏。
@@ -56,10 +58,12 @@ func newProgress(task *Task, it *iter, rewriteExt bool) *progress {
 func (p *progress) OnAdd(elem downloader.Elem) {
 	e := elem.(*iterElem)
 	p.task.addFile(TaskFile{
-		Name:  strings.TrimSuffix(filepath.Base(e.to.Name()), tempExt),
-		Path:  e.to.Name(),
-		Size:  e.file.Size,
-		State: "downloading",
+		Name:      strings.TrimSuffix(filepath.Base(e.to.Name()), tempExt),
+		Path:      e.to.Name(),
+		Size:      e.file.Size,
+		State:     "downloading",
+		DialogID:  e.info.DialogID,
+		MessageID: e.info.MessageID,
 	})
 	p.emit(e, e.file.Size, 0, "downloading", nil)
 }
@@ -108,14 +112,19 @@ func (p *progress) OnDone(elem downloader.Elem, err error) {
 		return
 	}
 	p.task.finishFile(tmpPath, TaskFile{
-		Name:  filepath.Base(newpath),
-		Path:  newpath,
-		Size:  e.file.Size,
-		State: "done",
+		Name:      filepath.Base(newpath),
+		Path:      newpath,
+		Size:      e.file.Size,
+		State:     "done",
+		DialogID:  e.info.DialogID,
+		MessageID: e.info.MessageID,
 	})
 
 	p.task.onFileDone(e.info)
-	p.emit(e, e.file.Size, e.file.Size, "done", nil)
+	ev := p.buildEvent(e, e.file.Size, e.file.Size, "done", nil)
+	ev.Name = filepath.Base(newpath) // rewriteExt 可能改名，以最终文件名为准
+	ev.Path = newpath
+	p.task.emitFile(ev)
 }
 
 // donePost 去除 .tmp 后缀、可选按 MIME 重写扩展名、还原消息时间；返回最终路径。
@@ -155,6 +164,10 @@ func (p *progress) fail(e *iterElem, err error) {
 }
 
 func (p *progress) emit(e *iterElem, total, downloaded int64, state string, err error) {
+	p.task.emitFile(p.buildEvent(e, total, downloaded, state, err))
+}
+
+func (p *progress) buildEvent(e *iterElem, total, downloaded int64, state string, err error) FileEvent {
 	ev := FileEvent{
 		TaskID:     p.task.ID,
 		FileID:     e.id,
@@ -168,5 +181,5 @@ func (p *progress) emit(e *iterElem, total, downloaded int64, state string, err 
 	if err != nil {
 		ev.Error = err.Error()
 	}
-	p.task.emitFile(ev)
+	return ev
 }

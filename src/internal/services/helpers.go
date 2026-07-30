@@ -47,3 +47,30 @@ func openDirectory(dir string) error {
 	go func() { _ = cmd.Wait() }()
 	return nil
 }
+
+// openFile 用系统默认关联程序打开单个文件（如视频调用默认播放器）。
+func openFile(path string) error {
+	if st, err := os.Stat(path); err != nil || st.IsDir() {
+		return errors.Errorf("文件不存在: %s", path)
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		// 与 openDirectory 同策略：绝对路径调 explorer，传文件即按默认关联程序打开。
+		explorer := "explorer.exe"
+		if root := os.Getenv("SystemRoot"); root != "" {
+			explorer = filepath.Join(root, "explorer.exe")
+		}
+		cmd = exec.Command(explorer, path)
+	case "darwin":
+		cmd = exec.Command("open", path)
+	default:
+		cmd = exec.Command("xdg-open", path)
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// SVC-11：回收子进程，避免 Unix 系上遗留 zombie
+	go func() { _ = cmd.Wait() }()
+	return nil
+}

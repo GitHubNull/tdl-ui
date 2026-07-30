@@ -300,6 +300,22 @@ func (m *Manager) TaskDir(id string) (string, error) {
 	return t.opts.Dir, nil
 }
 
+// DownloadedFiles 返回对话内全部已完成的文件记录（跨任务，"已下载"标记数据源）。
+func (m *Manager) DownloadedFiles(dialogID int64) ([]store.File, error) {
+	if m.deps.Store == nil {
+		return nil, nil
+	}
+	return m.deps.Store.ListDoneFilesByDialog(context.Background(), dialogID)
+}
+
+// DownloadedFile 返回指定消息最新的已完成文件记录；未下载过时第二返回值为 false。
+func (m *Manager) DownloadedFile(dialogID int64, messageID int) (store.File, bool, error) {
+	if m.deps.Store == nil {
+		return store.File{}, false, nil
+	}
+	return m.deps.Store.GetDoneFile(context.Background(), dialogID, messageID)
+}
+
 // ClearFinished 移除全部已完成状态的任务记录（不动磁盘文件）。
 func (m *Manager) ClearFinished() {
 	m.mu.Lock()

@@ -131,7 +131,8 @@ func toStoreTask(t *Task) store.Task {
 func storeFilesToTaskFiles(files []store.File) []TaskFile {
 	out := make([]TaskFile, 0, len(files))
 	for _, f := range files {
-		out = append(out, TaskFile{Name: f.Name, Path: f.Path, Size: f.Size, State: f.State})
+		out = append(out, TaskFile{Name: f.Name, Path: f.Path, Size: f.Size, State: f.State,
+			DialogID: f.DialogID, MessageID: f.MessageID})
 	}
 	return out
 }

@@ -120,3 +120,54 @@ func (s *Store) DeleteFilesByPath(ctx context.Context, taskID string, paths []st
 	}
 	return tx.Commit()
 }
+
+// ListDoneFilesByDialog 返回对话内全部已完成的文件记录（"已下载"标记数据源）。
+// 按 updated_at 升序：同一 messageId 多次下载时，调用方后写覆盖即取到最新记录。
+func (s *Store) ListDoneFilesByDialog(ctx context.Context, dialogID int64) ([]File, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, task_id, name, path, size, state, dialog_id, message_id, created_at, updated_at
+		FROM files WHERE dialog_id=? AND message_id>0 AND state='done' ORDER BY updated_at ASC, id ASC`, dialogID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var files []File
+	for rows.Next() {
+		f, err := scanFile(rows)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, rows.Err()
+}
+
+// GetDoneFile 返回指定消息最新的已完成文件记录；无记录时第二返回值为 false。
+func (s *Store) GetDoneFile(ctx context.Context, dialogID int64, messageID int) (File, bool, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, task_id, name, path, size, state, dialog_id, message_id, created_at, updated_at
+		FROM files WHERE dialog_id=? AND message_id=? AND state='done' ORDER BY updated_at DESC, id DESC LIMIT 1`, dialogID, messageID)
+	f, err := scanFile(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return File{}, false, nil
+	}
+	if err != nil {
+		return File{}, false, err
+	}
+	return f, true, nil
+}
+
+// scanFile 从行扫描 File，处理可空列（与 ListFiles 同构）。
+func scanFile(row interface{ Scan(...any) error }) (File, error) {
+	var f File
+	var size sql.NullInt64
+	var dialogID sql.NullInt64
+	var messageID sql.NullInt64
+	if err := row.Scan(&f.ID, &f.TaskID, &f.Name, &f.Path, &size, &f.State,
+		&dialogID, &messageID, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		return File{}, err
+	}
+	f.Size = size.Int64
+	f.DialogID = dialogID.Int64
+	f.MessageID = int(messageID.Int64)
+	return f, nil
+}

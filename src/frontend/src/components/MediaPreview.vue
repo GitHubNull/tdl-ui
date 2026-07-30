@@ -4,7 +4,16 @@
       <div class="mp-top">
         <span class="mp-name" :title="item?.name">{{ item?.name }}</span>
         <span class="mp-meta">{{ metaText }}</span>
+        <Tag v-if="downloaded" value="已下载" severity="success" icon="pi pi-check" />
         <div class="mp-actions">
+          <Button
+            v-if="downloaded"
+            label="打开文件"
+            icon="pi pi-external-link"
+            size="small"
+            severity="secondary"
+            @click="item && $emit('open', item)"
+          />
           <Button label="下载此文件" icon="pi pi-download" size="small" @click="item && $emit('download', item)" />
           <Button icon="pi pi-times" text rounded severity="contrast" v-tooltip.bottom="'关闭 (Esc)'" @click="close" />
         </div>
@@ -88,6 +97,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import Button from 'primevue/button'
+import Tag from 'primevue/tag'
 
 import { previewURL, thumbURL } from '../api'
 import { fmtDate, fmtSize, kindIcon } from '../utils/format'
@@ -99,16 +109,21 @@ const props = defineProps<{
   index: number
   dialogType: string
   hasMore: boolean
+  /** 已下载消息 ID 集合（可选，用于"已下载"Tag 与打开文件按钮） */
+  downloadedIds?: Set<number>
 }>()
 
 const emit = defineEmits<{
   (e: 'update:visible', v: boolean): void
   (e: 'update:index', v: number): void
   (e: 'download', item: MediaItem): void
+  (e: 'open', item: MediaItem): void
   (e: 'load-more'): void
 }>()
 
 const item = computed<MediaItem | undefined>(() => props.items[props.index])
+
+const downloaded = computed(() => !!item.value && !!props.downloadedIds?.has(item.value.messageId))
 
 const loaded = ref(false)
 const previewFailed = ref(false)

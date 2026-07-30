@@ -43,6 +43,8 @@ export const Download = {
   deleteAllFiles: DownloadService.DeleteAllFiles,
   openTaskDir: DownloadService.OpenTaskDir,
   selectDirectory: DownloadService.SelectDirectory,
+  listDownloadedMessages: DownloadService.ListDownloadedMessages,
+  openDownloadedFile: DownloadService.OpenDownloadedFile,
 }
 
 // ---- ScriptService ----
