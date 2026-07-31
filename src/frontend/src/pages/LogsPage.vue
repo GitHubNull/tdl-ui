@@ -36,6 +36,12 @@
           class="level-filter"
         />
         <span class="grow" />
+        <!-- 字号控制 -->
+        <div class="font-controls" v-tooltip.top="'Ctrl + 滚轮调整字号'">
+          <Button icon="pi pi-minus" size="small" severity="secondary" text rounded @click="adjustFont(-1)" />
+          <Button icon="pi pi-font" size="small" severity="secondary" text rounded @click="resetFont" />
+          <Button icon="pi pi-plus" size="small" severity="secondary" text rounded @click="adjustFont(1)" />
+        </div>
         <ToggleButton
           v-model="follow"
           on-label="跟随"
@@ -55,6 +61,15 @@
           @click="logs.clear()"
         />
         <Button
+          icon="pi pi-file-export"
+          size="small"
+          severity="secondary"
+          text
+          rounded
+          v-tooltip.top="'导出日志'"
+          @click="exportVisible = true"
+        />
+        <Button
           icon="pi pi-folder-open"
           size="small"
           severity="secondary"
@@ -67,19 +82,22 @@
       <div v-if="regexError" class="regex-error">正则表达式无效：{{ regexError }}（已退化为不过滤）</div>
 
       <!-- 日志主体 -->
-      <div class="logs-body-wrap">
+      <div
+        class="logs-body-wrap"
+        :style="bodyWrapStyle"
+        @wheel="onWheel"
+      >
         <VirtualScroller
           v-if="rows.length"
           ref="scroller"
           :items="rows"
-          :item-size="24"
+          :item-size="rowHeight"
           class="logs-body"
           @scroll="onScroll"
         >
           <template #item="{ item }">
-            <div class="log-row">
+            <div class="log-row" :style="rowStyle">
               <span class="log-gutter" :style="{ minWidth: gutterWidth }">{{ item.num }}</span>
-              <!-- item.html 由本页 escapeHtml 转义后拼接，v-html 安全 -->
               <span class="log-line" v-html="item.html" />
             </div>
           </template>
@@ -90,6 +108,12 @@
         </div>
       </div>
     </div>
+
+    <ExportLogsDialog
+      v-model:visible="exportVisible"
+      :filtered-rows="filteredLogEntries"
+      :all-lines="source === 'live' ? logs.entries.map((e) => e.text) : historyLines"
+    />
   </div>
 </template>
 
@@ -103,13 +127,66 @@ import ToggleButton from 'primevue/togglebutton'
 import VirtualScroller from 'primevue/virtualscroller'
 
 import SearchBox from '../components/SearchBox.vue'
+import ExportLogsDialog from '../components/ExportLogsDialog.vue'
 import { LogApi } from '../api'
 import { fmtSize } from '../utils/format'
 import { useLogsStore } from '../stores/logs'
-import type { LogFileInfo } from '../types'
+import { useSettingsStore } from '../stores/settings'
+import type { LogFileInfo, LogEntry } from '../types'
 
 const toast = useToast()
 const logs = useLogsStore()
+const settings = useSettingsStore()
+
+// ---- 字号与滚动条 ----
+const fontSize = computed(() => settings.settings.ui?.logFontSize || 14)
+const scrollbarSize = computed(() => settings.settings.ui?.scrollbarSize || 10)
+const rowHeight = computed(() => Math.round(fontSize.value * 1.8))
+
+const bodyWrapStyle = computed(() => ({
+  '--log-font-size': `${fontSize.value}px`,
+  '--log-row-height': `${rowHeight.value}px`,
+  '--logs-scrollbar-size': `${scrollbarSize.value}px`,
+} as Record<string, string>))
+
+const rowStyle = computed(() => ({
+  height: `${rowHeight.value}px`,
+  lineHeight: `${rowHeight.value}px`,
+  fontSize: `${fontSize.value}px`,
+}))
+
+let fontSaveTimer: ReturnType<typeof setTimeout> | undefined
+
+function adjustFont(delta: number) {
+  const next = Math.max(10, Math.min(28, fontSize.value + delta))
+  if (!settings.settings.ui) settings.settings.ui = { logFontSize: 14, scrollbarSize: 10 }
+  settings.settings.ui.logFontSize = next
+  // 防抖持久化
+  clearTimeout(fontSaveTimer)
+  fontSaveTimer = setTimeout(() => {
+    settings.save().catch(() => {})
+  }, 600)
+}
+
+function resetFont() {
+  if (!settings.settings.ui) settings.settings.ui = { logFontSize: 14, scrollbarSize: 10 }
+  settings.settings.ui.logFontSize = 14
+  clearTimeout(fontSaveTimer)
+  fontSaveTimer = setTimeout(() => {
+    settings.save().catch(() => {})
+  }, 600)
+}
+
+function onWheel(ev: WheelEvent) {
+  if (!ev.ctrlKey) return
+  ev.preventDefault()
+  adjustFont(ev.deltaY > 0 ? -1 : 1)
+}
+
+onBeforeUnmount(() => clearTimeout(fontSaveTimer))
+
+// ---- 导出弹窗 ----
+const exportVisible = ref(false)
 
 // ---- 数据源：实时 / 历史文件 ----
 const source = ref<'live' | string>('live')
@@ -137,7 +214,7 @@ watch(source, async (name) => {
   }
   try {
     const lines = (await LogApi.readLogFile(name, 5000)) ?? []
-    if (source.value !== name) return // 已切换到其他文件：丢弃慢回的旧响应，防乱序覆盖
+    if (source.value !== name) return
     historyLines.value = lines
   } catch (e) {
     if (source.value !== name) return
@@ -154,7 +231,6 @@ const autoJump = ref(true)
 const levelOptions = ['DEBUG', 'INFO', 'WARN', 'ERROR']
 const levels = ref<string[]>([...levelOptions])
 
-// FE-23：搜索输入 200ms 防抖，避免每敲一字符对全量日志重算
 const QUERY_DEBOUNCE_MS = 200
 const debouncedQuery = ref('')
 let queryTimer: ReturnType<typeof setTimeout> | undefined
@@ -164,10 +240,8 @@ watch(query, (q) => {
     debouncedQuery.value = q
   }, QUERY_DEBOUNCE_MS)
 })
-// CODE-002：卸载时清掉未决防抖定时器，避免回调写入已卸载组件的 ref
 onBeforeUnmount(() => clearTimeout(queryTimer))
 
-// FE-22：编译结果与错误信息均为纯 computed，不在 computed 内写状态
 const compiled = computed<{ re: RegExp | null; error: string }>(() => {
   const q = debouncedQuery.value
   if (!q) return { re: null, error: '' }
@@ -179,7 +253,6 @@ const compiled = computed<{ re: RegExp | null; error: string }>(() => {
   }
 })
 
-/** 搜索匹配器；正则非法时为 null（不过滤）。 */
 const matcher = computed<RegExp | null>(() => compiled.value.re)
 const regexError = computed(() => compiled.value.error)
 
@@ -187,7 +260,7 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-// ---- 行模型：结构化实时条目与历史文本行统一为可渲染行 ----
+// ---- 行模型 ----
 interface Row {
   num: number
   level: string
@@ -195,9 +268,31 @@ interface Row {
   html: string
 }
 
-/** 默认格式模板产生的行：时间 [级别] - [模块] - [文件] - [函数] - [行号] - 消息 */
 const lineRe =
   /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[.,]?\d*) \[(\w+)\] - \[([^\]]*)\] - \[([^\]]*)\] - \[(.*?)\] - \[(\d+)\] - (.*)$/
+
+const filteredLogEntries = computed<LogEntry[]>(() => {
+  const m = matcher.value
+  const lvSet = new Set(levels.value)
+  if (source.value === 'live') {
+    return logs.entries.filter((e) => lvSet.has(e.level) && (!m || test(m, e.text)))
+  }
+  const out: LogEntry[] = []
+  for (let i = 0; i < historyLines.value.length; i++) {
+    const line = historyLines.value[i]
+    const parsed = lineRe.exec(line)
+    const level = parsed ? parsed[2].toUpperCase() : detectLevel(line)
+    if (level && !lvSet.has(level)) continue
+    if (m && !test(m, line)) continue
+    out.push({
+      seq: i + 1, time: parsed?.[1] ?? '', level: level || '',
+      module: parsed?.[3] ?? '', file: parsed?.[4] ?? '',
+      func: parsed?.[5] ?? '', line: parsed ? parseInt(parsed[6]) : 0,
+      msg: parsed?.[7] ?? line, text: line,
+    } as LogEntry)
+  }
+  return out
+})
 
 const rows = computed<Row[]>(() => {
   const m = matcher.value
@@ -241,18 +336,15 @@ function test(re: RegExp, s: string): boolean {
   return re.test(s)
 }
 
-/** 无法结构化解析时从整行探测级别。 */
 function detectLevel(line: string): string {
   const m = /\[(DEBUG|INFO|WARN|ERROR)\]/.exec(line)
   return m ? m[1] : ''
 }
 
-// ---- 语法高亮与搜索命中标记（渲染前 HTML 转义防注入） ----
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-/** 对文本做搜索命中 <mark> 标记（分段转义，防注入）。 */
 function mark(re: RegExp | null, s: string): string {
   if (!re) return escapeHtml(s)
   re.lastIndex = 0
@@ -288,7 +380,6 @@ function renderParts(
   )
 }
 
-// ---- 行号沟槽宽度随最大位数自适应 ----
 const gutterWidth = computed(() => {
   const max = rows.value.length ? rows.value[rows.value.length - 1].num : 0
   return `${Math.max(String(max).length, 3)}ch`
@@ -300,7 +391,7 @@ const emptyText = computed(() => {
   return '暂无日志'
 })
 
-// ---- 滚动：自动跳转与跟随 ----
+// ---- 滚动 ----
 const scroller = ref<InstanceType<typeof VirtualScroller> | null>(null)
 const follow = ref(true)
 let programmaticScroll = false
@@ -311,14 +402,12 @@ function scrollTo(index: number) {
   setTimeout(() => (programmaticScroll = false), 100)
 }
 
-// 搜索条件变化后自动跳转到第一条命中
 watch([query, useRegex, caseSensitive], async () => {
   if (!autoJump.value || !query.value) return
   await nextTick()
   if (rows.value.length) scrollTo(0)
 })
 
-// 实时源新日志到达时跟随滚动到底部
 watch(
   () => rows.value.length,
   async (len) => {
@@ -328,7 +417,6 @@ watch(
   },
 )
 
-/** 用户手动上滚暂停跟随，回到底部自动恢复。 */
 function onScroll(ev: Event) {
   if (programmaticScroll) return
   const el = ev.target as HTMLElement
@@ -361,7 +449,7 @@ async function openDir() {
   padding: 12px 16px 16px;
 }
 
-/* 工具栏：一行粘性置顶 */
+/* 工具栏 */
 .logs-toolbar {
   position: sticky;
   top: 0;
@@ -371,6 +459,12 @@ async function openDir() {
   gap: 8px;
   flex-wrap: wrap;
   padding-bottom: 12px;
+}
+
+.font-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .source-select {
@@ -393,7 +487,7 @@ async function openDir() {
   margin: -6px 0 8px;
 }
 
-/* 日志主体：类终端深底 */
+/* 日志主体 */
 .logs-body-wrap {
   flex: 1;
   min-height: 0;
@@ -409,7 +503,19 @@ async function openDir() {
   min-height: 0;
   width: 100%;
   font-family: Consolas, 'Courier New', monospace;
-  font-size: 12px;
+  font-size: var(--log-font-size, 14px);
+}
+
+.logs-body :deep(.p-virtualscroller)::-webkit-scrollbar {
+  width: var(--logs-scrollbar-size, 10px);
+  height: var(--logs-scrollbar-size, 10px);
+}
+.logs-body :deep(.p-virtualscroller)::-webkit-scrollbar-thumb {
+  background: var(--p-surface-600);
+  border-radius: calc(var(--logs-scrollbar-size, 10px) / 2);
+}
+.logs-body :deep(.p-virtualscroller)::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .logs-empty {
@@ -427,8 +533,9 @@ async function openDir() {
 .log-row {
   display: flex;
   align-items: flex-start;
-  height: 24px;
-  line-height: 24px;
+  height: var(--log-row-height, 25px);
+  line-height: var(--log-row-height, 25px);
+  font-size: var(--log-font-size, 14px);
   white-space: nowrap;
 }
 
@@ -436,7 +543,7 @@ async function openDir() {
   background: color-mix(in srgb, var(--p-surface-0) 6%, transparent);
 }
 
-/* 行号沟槽：右对齐、不可选中、细分隔线 */
+/* 行号沟槽 */
 .log-gutter {
   flex: none;
   text-align: right;

@@ -53,6 +53,7 @@ export const Script = {
   read: ScriptService.Read,
   save: ScriptService.Save,
   remove: ScriptService.Delete,
+  setEnabled: ScriptService.SetEnabled,
   validate: ScriptService.Validate,
   testRun: ScriptService.TestRun,
   templates: ScriptService.Templates,

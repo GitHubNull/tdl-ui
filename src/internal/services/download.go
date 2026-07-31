@@ -131,11 +131,25 @@ func (s *DownloadService) SelectDirectory(kind string, currentDir string) (strin
 	defaultDir := s.cfg.Get().DownloadDir
 	if currentDir != "" {
 		defaultDir = currentDir
+	} else {
+		recent := s.cfg.RecentDirs(kind)
+		if len(recent) > 0 {
+			defaultDir = recent[0]
+		}
 	}
-	return runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{
+	picked, err := runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{
 		Title:            title,
 		DefaultDirectory: defaultDir,
 	})
+	if err != nil {
+		return "", err
+	}
+	if picked != "" {
+		if _, aerr := s.cfg.AddRecentDir(kind, picked); aerr != nil {
+			logDownload.Warnf("记录最近目录失败: kind=%s dir=%s err=%v", kind, picked, aerr)
+		}
+	}
+	return picked, nil
 }
 
 // DownloadedFile 对话内已完成下载的消息文件（媒体页"已下载"标记数据源）。

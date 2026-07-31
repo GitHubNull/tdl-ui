@@ -14,6 +14,34 @@ import (
 	"tdl-ui/internal/logging"
 )
 
+// UISettings 界面偏好（日志页字号与滚动条尺寸）
+type UISettings struct {
+	LogFontSize   int `json:"logFontSize" yaml:"logFontSize"`     // 默认 14，钳制 10..28
+	ScrollbarSize int `json:"scrollbarSize" yaml:"scrollbarSize"` // 默认 10，钳制 6..24
+}
+
+func (u UISettings) withDefaults() UISettings {
+	if u.LogFontSize <= 0 {
+		u.LogFontSize = 14
+	}
+	if u.LogFontSize < 10 {
+		u.LogFontSize = 10
+	}
+	if u.LogFontSize > 28 {
+		u.LogFontSize = 28
+	}
+	if u.ScrollbarSize <= 0 {
+		u.ScrollbarSize = 10
+	}
+	if u.ScrollbarSize < 6 {
+		u.ScrollbarSize = 6
+	}
+	if u.ScrollbarSize > 24 {
+		u.ScrollbarSize = 24
+	}
+	return u
+}
+
 // Settings 应用全局设置（对前端与服务层暴露的扁平结构，仅保留 JSON 标签）。
 type Settings struct {
 	// Proxy 代理地址，如 socks5://127.0.0.1:1080 或 http://127.0.0.1:8080，空为直连
@@ -44,8 +72,14 @@ type Settings struct {
 	VideoWorkers int `json:"videoWorkers"`
 	// ProgressIntervalMs 单文件下载进度事件最小推送间隔（毫秒），0 回退内置默认值 200（ARC-003）
 	ProgressIntervalMs int `json:"progressIntervalMs"`
+	// UI 界面偏好（日志字号与滚动条尺寸）
+	UI UISettings `json:"ui"`
 	// RecentDirs 各用途最近使用目录历史（key＝download/logExport/cache/temp/logDir）
 	RecentDirs map[string][]string `json:"recentDirs"`
+	// EnabledScripts 已启用的脚本名列表
+	EnabledScripts []string `json:"enabledScripts"`
+	// TemplatesSeeded 内置模板是否已首次播种
+	TemplatesSeeded bool `json:"templatesSeeded"`
 	// Log 日志配置（输出目标、级别、目录、格式与滚动策略）
 	Log logging.LogSettings `json:"log"`
 }
@@ -72,8 +106,16 @@ type yamlConfig struct {
 		VideoWorkers       int `yaml:"videoWorkers"`
 		ProgressIntervalMs int `yaml:"progressIntervalMs"`
 	} `yaml:"tuning"`
-	Log     logging.LogSettings `yaml:"log"`
-	Session struct {
+	UI struct {
+		LogFontSize   int `yaml:"logFontSize"`
+		ScrollbarSize int `yaml:"scrollbarSize"`
+	} `yaml:"ui"`
+	Scripts struct {
+		Enabled         []string `yaml:"enabled"`
+		TemplatesSeeded bool     `yaml:"templatesSeeded"`
+	} `yaml:"scripts"`
+	Log        logging.LogSettings `yaml:"log"`
+	Session    struct {
 		Proxy            string `yaml:"proxy"`
 		LoggedInUserID   int64  `yaml:"loggedInUserId"`
 		LoggedInUsername string `yaml:"loggedInUsername"`
@@ -94,6 +136,10 @@ func settingsToYAML(s Settings) yamlConfig {
 	y.Tuning.ThumbWorkers = s.ThumbWorkers
 	y.Tuning.VideoWorkers = s.VideoWorkers
 	y.Tuning.ProgressIntervalMs = s.ProgressIntervalMs
+	y.UI.LogFontSize = s.UI.LogFontSize
+	y.UI.ScrollbarSize = s.UI.ScrollbarSize
+	y.Scripts.Enabled = s.EnabledScripts
+	y.Scripts.TemplatesSeeded = s.TemplatesSeeded
 	y.Log = s.Log
 	y.Session.Proxy = s.Proxy
 	y.Session.LoggedInUserID = s.LoggedInUserID
@@ -118,8 +164,14 @@ func yamlToSettings(y yamlConfig) Settings {
 		ThumbWorkers:       y.Tuning.ThumbWorkers,
 		VideoWorkers:       y.Tuning.VideoWorkers,
 		ProgressIntervalMs: y.Tuning.ProgressIntervalMs,
-		RecentDirs:         y.RecentDirs,
-		Log:                y.Log,
+		UI: UISettings{
+			LogFontSize:   y.UI.LogFontSize,
+			ScrollbarSize: y.UI.ScrollbarSize,
+		},
+		EnabledScripts:  y.Scripts.Enabled,
+		TemplatesSeeded: y.Scripts.TemplatesSeeded,
+		RecentDirs:      y.RecentDirs,
+		Log:             y.Log,
 	}
 }
 
@@ -180,6 +232,7 @@ func defaultSettings(dataDir string) Settings {
 		Limit:       2,
 		PoolSize:    8,
 		Theme:       "system",
+		UI:          UISettings{LogFontSize: 14, ScrollbarSize: 10},
 		Log:         logging.DefaultSettings(),
 	}
 }
@@ -255,6 +308,20 @@ func (m *Manager) Update(s Settings) error {
 	}
 	s.Log = s.Log.WithDefaults()
 
+	// UI 零值回默认并钳制上下限
+	s.UI = s.UI.withDefaults()
+
+	// RecentDirs nil 兜底为空 map
+	if s.RecentDirs == nil {
+		s.RecentDirs = make(map[string][]string)
+	}
+	// 每个 kind 裁剪至 3 条
+	for k, list := range s.RecentDirs {
+		if len(list) > MaxRecentDirs {
+			s.RecentDirs[k] = list[:MaxRecentDirs]
+		}
+	}
+
 	// Proxy 预校验（SVC-14）：非法值在保存时即报错，而非等到建连时才以晦涩错误暴露。
 	if s.Proxy != "" {
 		if err := validateProxy(s.Proxy); err != nil {
@@ -300,7 +367,7 @@ func validateProxy(p string) error {
 }
 
 // verifyWritableDir 确保目录可创建并可写（写入探针文件后删除）。
-func verifyWritableDir(dir string) error {
+func VerifyWritableDir(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -311,6 +378,9 @@ func verifyWritableDir(dir string) error {
 	_ = os.Remove(probe)
 	return nil
 }
+
+// verifyWritableDir 内部别名（保持既有调用点兼容）。
+func verifyWritableDir(dir string) error { return VerifyWritableDir(dir) }
 
 // loadOrMigrate 按迁移策略加载配置。
 func (m *Manager) loadOrMigrate() error {
@@ -365,12 +435,106 @@ func (m *Manager) applyLegacyJSON(b []byte) error {
 }
 
 func (m *Manager) save() error {
-	m.mu.RLock()
 	y := settingsToYAML(m.settings)
-	m.mu.RUnlock()
 	b, err := yaml.Marshal(y)
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(m.configPath(), b, 0o644)
+}
+
+// saveLocked 在已持有写锁时调用，避免 RLock 死锁。
+func (m *Manager) saveLocked() error {
+	return m.save()
+}
+
+// ---- 目录历史（按用途分组，每组上限 3 条） ----
+
+// MaxRecentDirs 单个用途的最近目录历史上限。
+const MaxRecentDirs = 3
+
+var recentDirKinds = map[string]struct{}{
+	"download": {}, "logExport": {}, "cache": {}, "temp": {}, "logDir": {},
+}
+
+// RecentDirs 返回指定用途的最近目录历史。
+func (m *Manager) RecentDirs(kind string) []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.settings.RecentDirs == nil {
+		return nil
+	}
+	return m.settings.RecentDirs[kind]
+}
+
+// AddRecentDir 将目录加入指定用途的最近历史（去重、置顶、裁剪）。
+func (m *Manager) AddRecentDir(kind, dir string) ([]string, error) {
+	if _, ok := recentDirKinds[kind]; !ok {
+		return nil, errors.Errorf("未知目录用途: %q", kind)
+	}
+	if dir == "" {
+		return m.RecentDirs(kind), nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.settings.RecentDirs == nil {
+		m.settings.RecentDirs = make(map[string][]string)
+	}
+	list := m.settings.RecentDirs[kind]
+	filtered := make([]string, 0, len(list)+1)
+	filtered = append(filtered, dir)
+	for _, d := range list {
+		if d != dir {
+			filtered = append(filtered, d)
+		}
+	}
+	if len(filtered) > MaxRecentDirs {
+		filtered = filtered[:MaxRecentDirs]
+	}
+	m.settings.RecentDirs[kind] = filtered
+	return filtered, m.saveLocked()
+}
+
+// ---- 脚本启用状态 ----
+
+// IsScriptEnabled 查询脚本是否被启用。
+func (m *Manager) IsScriptEnabled(name string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, n := range m.settings.EnabledScripts {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// SetScriptEnabled 设置脚本的启用状态。
+func (m *Manager) SetScriptEnabled(name string, on bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	list := make([]string, 0, len(m.settings.EnabledScripts)+1)
+	for _, n := range m.settings.EnabledScripts {
+		if n != name {
+			list = append(list, n)
+		}
+	}
+	if on {
+		list = append(list, name)
+	}
+	m.settings.EnabledScripts = list
+	return m.saveLocked()
+}
+
+// ForgetScript 删除脚本时清理启用记录。
+func (m *Manager) ForgetScript(name string) error {
+	return m.SetScriptEnabled(name, false)
+}
+
+// MarkTemplatesSeeded 标记内置模板已播种。
+func (m *Manager) MarkTemplatesSeeded() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.settings.TemplatesSeeded = true
+	return m.saveLocked()
 }

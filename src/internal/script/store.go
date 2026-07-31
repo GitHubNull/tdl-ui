@@ -85,33 +85,45 @@ func (s *Store) List() ([]Meta, error) {
 	return metas, nil
 }
 
-// extractDescription 从脚本文件头部注释提取第一行有意义内容作为说明。
+// extractDescription 从脚本文件头部注释提取说明。
+// 读取 package 之前连续 // 行首段（截断 200 字符）作为 Description。
 func extractDescription(path string) string {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
-	// 取第一段注释块中的非空行作为说明
-	lines := strings.SplitN(string(b), "\n", 10)
+	// 只读前 4KB，避免大文件
+	if len(b) > 4096 {
+		b = b[:4096]
+	}
+	lines := strings.Split(string(b), "\n")
+	var descLines []string
+	inBlock := false
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		if strings.HasPrefix(line, "//") {
-			line = strings.TrimPrefix(line, "//")
-			line = strings.TrimSpace(line)
-			if line != "" {
-				return line
+			inBlock = true
+			text := strings.TrimSpace(strings.TrimPrefix(line, "//"))
+			if text != "" {
+				descLines = append(descLines, text)
 			}
 			continue
 		}
-		// 遇到非注释行（如 package main），停止搜索
 		if strings.HasPrefix(line, "package ") {
 			break
 		}
+		if inBlock {
+			break
+		}
 	}
-	return ""
+	desc := strings.Join(descLines, " ")
+	if len(desc) > 200 {
+		desc = desc[:200]
+	}
+	return desc
 }
 
 // Read 读取脚本源码。

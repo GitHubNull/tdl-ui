@@ -11,11 +11,14 @@
       <div class="panel-card list-pane">
         <div class="list-head">
           <span class="list-title">脚本列表</span>
-          <Button icon="pi pi-plus" size="small" text rounded v-tooltip.top="'新建脚本'" @click="newScript" />
+          <div class="list-actions">
+            <Button icon="pi pi-copy" size="small" text rounded v-tooltip.top="'从模板创建'" @click="tplVisible = true" />
+            <Button icon="pi pi-plus" size="small" text rounded v-tooltip.top="'新建脚本'" @click="newScript" />
+          </div>
         </div>
         <div v-if="!scripts.scripts.length" class="empty-state small">
           <i class="pi pi-code" />
-          <p>还没有脚本</p>
+          <p>还没有脚本，可点击「模板」从内置示例开始</p>
         </div>
         <div
           v-for="s in scripts.scripts"
@@ -24,10 +27,17 @@
           :class="{ active: s.name === currentName }"
           @click="open(s.name)"
         >
+          <Checkbox
+            :model-value="s.enabled"
+            binary
+            @click.stop
+            @update:model-value="(v: boolean) => toggleEnabled(s.name, v)"
+          />
           <i class="pi pi-file" />
           <div class="grow">
             <div class="name">{{ s.name }}</div>
             <div class="meta">{{ s.updatedAt }}</div>
+            <div v-if="s.description" class="desc" :title="s.description">{{ s.description }}</div>
           </div>
         </div>
       </div>
@@ -42,6 +52,11 @@
         <div class="form-field">
           <label for="script-src">源码（package main，契约函数均可选）</label>
           <Textarea id="script-src" v-model="source" class="code-editor" spellcheck="false" />
+        </div>
+
+        <div class="editor-hint">
+          <i class="pi pi-info-circle" />
+          未启用的脚本不会出现在「添加下载」弹窗的脚本下拉中
         </div>
 
         <div class="editor-actions">
@@ -72,6 +87,8 @@
         </div>
       </div>
     </div>
+
+    <ScriptTemplateDialog v-model:visible="tplVisible" @select="onTemplateSelect" />
   </div>
 </template>
 
@@ -80,13 +97,16 @@ import { computed, ref } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
 import Button from 'primevue/button'
+import Checkbox from 'primevue/checkbox'
 import ConfirmDialog from 'primevue/confirmdialog'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Textarea from 'primevue/textarea'
 
+import ScriptTemplateDialog from '../components/ScriptTemplateDialog.vue'
 import { Script } from '../api'
 import { useScriptsStore } from '../stores/scripts'
+import type { ScriptTemplate } from '../types'
 
 const scripts = useScriptsStore()
 const toast = useToast()
@@ -94,11 +114,11 @@ const confirm = useConfirm()
 
 const currentName = ref('')
 const source = ref('')
-// editing=true 表示新建（脚本名可改）
 const editing = ref(false)
 const result = ref<{ ok: boolean; text: string } | null>(null)
+const tplVisible = ref(false)
 
-// FE-12：追踪未保存修改，切换/新建前弹确认，避免静默丢失
+// FE-12：追踪未保存修改
 const savedSource = ref('')
 const dirty = computed(() => source.value !== savedSource.value)
 
@@ -159,7 +179,6 @@ async function save() {
 }
 
 function remove() {
-  // FE-12：删除不可恢复，与 Tasks/Settings 页一致走 ConfirmDialog
   confirm.require({
     message: `确定删除脚本「${currentName.value}」？此操作不可恢复。`,
     header: '删除脚本',
@@ -180,6 +199,25 @@ function remove() {
         toast.add({ severity: 'error', summary: '删除失败', detail: String(e), life: 5000 })
       }
     },
+  })
+}
+
+async function toggleEnabled(name: string, v: boolean) {
+  try {
+    await scripts.setEnabled(name, v)
+  } catch (e: any) {
+    toast.add({ severity: 'error', summary: '设置失败', detail: String(e), life: 4000 })
+    await scripts.refresh()
+  }
+}
+
+function onTemplateSelect(tpl: ScriptTemplate) {
+  confirmDiscard(() => {
+    source.value = tpl.source
+    savedSource.value = tpl.source
+    currentName.value = tpl.id
+    editing.value = true
+    result.value = null
   })
 }
 
@@ -225,7 +263,7 @@ async function testRun() {
 }
 
 .list-pane {
-  width: 240px;
+  width: 260px;
   flex-shrink: 0;
   padding: 16px;
 }
@@ -242,6 +280,11 @@ async function testRun() {
   margin-bottom: 8px;
 }
 
+.list-actions {
+  display: flex;
+  gap: 2px;
+}
+
 .list-title {
   font-weight: 600;
   font-size: 13px;
@@ -249,7 +292,7 @@ async function testRun() {
 
 .script-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 8px;
   border-radius: 8px;
@@ -292,6 +335,18 @@ async function testRun() {
   color: var(--p-text-muted-color);
 }
 
+.script-item .desc {
+  font-size: 11px;
+  color: var(--p-text-muted-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.3;
+  margin-top: 2px;
+}
+
 .empty-state.small {
   padding: 24px 8px;
 }
@@ -311,7 +366,29 @@ async function testRun() {
   flex: 1;
 }
 
+.editor-hint {
+  font-size: 12px;
+  color: var(--p-text-muted-color);
+  margin: -8px 0 12px;
+}
+
+.editor-hint i {
+  margin-right: 4px;
+}
+
 .mt-16 {
   margin-top: 16px;
+}
+
+.log-console {
+  background: var(--p-surface-950);
+  color: var(--p-surface-200);
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
 }
 </style>

@@ -199,14 +199,17 @@ func (s *LogService) ExportLogs(dir, name, content string) (string, error) {
 	default:
 		return "", errors.Errorf("不支持的文件格式: %s，仅支持 .log / .txt / .csv", ext)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		logLog.Errorf("创建导出目录失败: %s: %v", dir, err)
+	if err := config.VerifyWritableDir(dir); err != nil {
+		logLog.Errorf("导出目录不可写: %s: %v", dir, err)
 		return "", err
 	}
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		logLog.Errorf("导出日志失败: %s: %v", path, err)
 		return "", err
+	}
+	if _, aerr := s.cfg.AddRecentDir("logExport", dir); aerr != nil {
+		logLog.Warnf("记录导出目录失败: %v", aerr)
 	}
 	logLog.Infof("日志已导出: %s (%d 字节)", path, len(content))
 	return path, nil

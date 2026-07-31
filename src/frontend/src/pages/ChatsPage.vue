@@ -180,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
@@ -222,6 +222,8 @@ const selectedTitle = computed(
   () => selectedDialog.value?.title ?? String(route.query.title ?? `对话 ${selectedId.value}`),
 )
 
+const LAST_DIALOG_KEY = 'chats.lastDialogId'
+
 function selectDialog(d: DialogView) {
   if (selectedId.value === d.id) return
   selectedId.value = d.id
@@ -236,7 +238,25 @@ watch(selectedId, (id) => {
   refreshDownloaded(id)
   restoreFileStates()
   const restored = switchTo(id)
-  if (!restored) loadMore()
+  if (restored) {
+    restoring.value = true
+    nextTick().then(() => {
+      requestAnimationFrame(() => {
+        if (scrollEl.value) {
+          scrollEl.value.scrollTop = restoredScrollTop.value
+        }
+        restoring.value = false
+      })
+    })
+  } else {
+    loadMore()
+  }
+  // 持久化最后选中对话
+  if (id) {
+    localStorage.setItem(LAST_DIALOG_KEY, String(id))
+  } else {
+    localStorage.removeItem(LAST_DIALOG_KEY)
+  }
 })
 
 // ---- 右面板：媒体分页（useMediaPager 内置 epoch 防乱序 + LRU 缓存） ----
@@ -247,6 +267,7 @@ const {
   loading,
   failed,
   applied,
+  restoredScrollTop,
   switchTo,
   saveSnapshot,
   applyFilters: pagerApplyFilters,
@@ -256,7 +277,8 @@ const {
   dialogType: () => selectedType.value,
   onError: (e: any) =>
     toast.add({ severity: 'error', summary: '加载媒体失败', detail: String(e?.message ?? e), life: 5000 }),
-  autoContinue: () => sentinelVisible,
+  autoContinue: () => sentinelVisible && !restoring,
+  scrollTop: () => scrollEl.value?.scrollTop ?? 0,
 })
 
 function applyFilters(f: AppliedFilters) {
@@ -335,6 +357,7 @@ function scrollToMonth(key: string) {
 // ---- 瀑布流：按纵横比计算 grid 跨行 ----
 
 const scrollEl = ref<HTMLElement | null>(null)
+const restoring = ref(false)
 const { cardStyle } = useWaterfall(scrollEl, layout)
 
 // ---- HTTP 缩略图（磁盘缓存 + 浏览器缓存接管并发） ----
@@ -593,7 +616,17 @@ onMounted(() => {
 
   // 深链 /chats/:id 预选对话
   const pid = Number(route.params.id)
-  if (pid) selectedId.value = pid
+  if (pid) {
+    selectedId.value = pid
+  } else {
+    const last = localStorage.getItem(LAST_DIALOG_KEY)
+    if (last) {
+      const lastId = Number(last)
+      selectedId.value = lastId
+      const d = chats.byId(lastId)
+      router.replace({ path: '/chats/' + lastId, query: { type: d?.type ?? '', title: d?.title ?? '' } })
+    }
+  }
 })
 
 // 深链与历史前进后退：/chats/:id 变化时同步选中
@@ -620,6 +653,7 @@ watch(
     if (!v) {
       resetThumbClick() // FUNC-001：登出即上下文失效，未决点击一并作废
       selectedId.value = null
+      localStorage.removeItem(LAST_DIALOG_KEY)
     }
   },
 )

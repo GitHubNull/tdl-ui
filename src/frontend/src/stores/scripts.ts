@@ -15,6 +15,9 @@ export const useScriptsStore = defineStore('scripts', {
     logs: [] as string[],
     inited: false,
   }),
+  getters: {
+    enabled: (state) => state.scripts.filter((s) => s.enabled),
+  },
   actions: {
     async init() {
       if (this.inited) return
@@ -33,6 +36,14 @@ export const useScriptsStore = defineStore('scripts', {
         this.scripts = (await Script.list()) ?? []
       } catch {
         /* 非 Wails 环境忽略 */
+      }
+    },
+    async setEnabled(name: string, v: boolean) {
+      try {
+        await Script.setEnabled(name, v)
+        await this.refresh()
+      } catch (e: any) {
+        throw e
       }
     },
     clearLogs() {

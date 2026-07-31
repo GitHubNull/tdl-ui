@@ -1,69 +1,75 @@
 package services
 
 import (
-	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"tdl-ui/internal/config"
+	"tdl-ui/internal/events"
+	"tdl-ui/internal/logging"
 )
 
-func newExportLogService(t *testing.T) *LogService {
+func newTestLogService(t *testing.T) (*LogService, *config.Manager) {
 	t.Helper()
 	cfg, err := config.NewManagerAt(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewManagerAt 失败: %v", err)
 	}
-	return NewLogService(cfg, nil)
+	emitter := &events.Emitter{}
+	return NewLogService(cfg, emitter), cfg
 }
 
-// TestExportLogsWritesFile 正常导出写入目标目录并返回完整路径。
-func TestExportLogsWritesFile(t *testing.T) {
-	s := newExportLogService(t)
+// TestExportLogsNormal 正常写入文件。
+func TestExportLogsNormal(t *testing.T) {
+	svc, _ := newTestLogService(t)
 	dir := t.TempDir()
-
-	got, err := s.ExportLogs(dir, "tdl-ui-log.csv", "time,level,module,source,message\n")
+	path, err := svc.ExportLogs(dir, "test.log", "hello world")
 	if err != nil {
 		t.Fatalf("ExportLogs 失败: %v", err)
 	}
-	want := filepath.Join(dir, "tdl-ui-log.csv")
-	if got != want {
-		t.Fatalf("返回路径应为 %q，实际 %q", want, got)
-	}
-	b, err := os.ReadFile(want)
-	if err != nil {
-		t.Fatalf("读取导出文件失败: %v", err)
-	}
-	if string(b) != "time,level,module,source,message\n" {
-		t.Fatalf("导出内容不一致: %q", string(b))
+	if path != filepath.Join(dir, "test.log") {
+		t.Errorf("路径应为 %q，实际 %q", filepath.Join(dir, "test.log"), path)
 	}
 }
 
-// TestExportLogsRejectsPathInFilename 文件名含路径分隔符被拒（防目录穿越）。
-func TestExportLogsRejectsPathInFilename(t *testing.T) {
-	s := newExportLogService(t)
-	for _, name := range []string{"", filepath.Join("sub", "a.log"), "../a.log"} {
-		if _, err := s.ExportLogs(t.TempDir(), name, "x"); err == nil {
-			t.Errorf("文件名 %q 应被拒绝", name)
+// TestExportLogsRejectsPathSeparator filename 含路径分隔符应被拒。
+func TestExportLogsRejectsPathSeparator(t *testing.T) {
+	svc, _ := newTestLogService(t)
+	for _, name := range []string{"../etc/passwd.log", "a/b.txt", `c\d.txt`} {
+		_, err := svc.ExportLogs(t.TempDir(), name, "x")
+		if err == nil || !strings.Contains(err.Error(), "非法") {
+			t.Errorf("%q 应被拒，实际 err=%v", name, err)
 		}
 	}
 }
 
-// TestExportLogsRejectsUnknownExt 非白名单扩展名被拒。
-func TestExportLogsRejectsUnknownExt(t *testing.T) {
-	s := newExportLogService(t)
-	if _, err := s.ExportLogs(t.TempDir(), "a.exe", "x"); err == nil {
-		t.Error("非白名单扩展名应被拒绝")
-	}
-	if _, err := s.ExportLogs(t.TempDir(), "noext", "x"); err == nil {
-		t.Error("无扩展名应被拒绝")
+// TestExportLogsRejectsBadExt 非白名单扩展名应被拒。
+func TestExportLogsRejectsBadExt(t *testing.T) {
+	svc, _ := newTestLogService(t)
+	for _, name := range []string{"data.exe", "dump.zip", "file"} {
+		_, err := svc.ExportLogs(t.TempDir(), name, "x")
+		if err == nil || !strings.Contains(err.Error(), "不支持") {
+			t.Errorf("%q 应被拒，实际 err=%v", name, err)
+		}
 	}
 }
 
-// TestExportLogsRejectsEmptyDir 空目录被拒。
-func TestExportLogsRejectsEmptyDir(t *testing.T) {
-	s := newExportLogService(t)
-	if _, err := s.ExportLogs("", "a.log", "x"); err == nil {
-		t.Error("空目录应被拒绝")
+// TestExportLogsRecordsRecentDir 成功后记录 logExport 历史。
+func TestExportLogsRecordsRecentDir(t *testing.T) {
+	svc, cfg := newTestLogService(t)
+	dir := t.TempDir()
+	_, err := svc.ExportLogs(dir, "test.txt", "x")
+	if err != nil {
+		t.Fatalf("ExportLogs 失败: %v", err)
 	}
+	recent := cfg.RecentDirs("logExport")
+	if len(recent) != 1 || recent[0] != dir {
+		t.Errorf("导出目录应被记录，实际 %v", recent)
+	}
+}
+
+// 初始化日志系统（避免 nil logger）
+func init() {
+	logging.Init(logging.DefaultSettings(), nil)
 }

@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.15.0] - 2026-08-01 12:38:00
+
+### Added
+- **对话页状态保持**：切到其他标签页再返回后，自动恢复上次选中的对话、已加载媒体列表、筛选条件与滚动位置；不自动重开 MediaPreview 浮层。实现依赖 `useMediaPager` 的 LRU 快照缓存（新增 `scrollTop` 字段）与 `localStorage` 持久化最后选中对话 ID。
+- **日志页字号与滚动条自定义**：字号默认 14px（原 12px），支持 Ctrl+滚轮实时调整（10–28px 钳制），工具栏提供 `-` / `A` / `+` 三键组供无滚轮场景；滚动条尺寸（6–24px）由设置页「界面」段 `InputNumber` 控制，即时生效。两者均持久化到 `config.yaml` 的 `ui` 段。
+- **日志导出对话框**：日志页工具栏新增「导出」按钮，打开 `ExportLogsDialog.vue`，支持选择范围（当前过滤结果 / 全部）、格式（`.log` / `.txt` / `.csv`）、目录（`DirSelect` 组件，kind=`logExport`）与文件名；`.csv` 按 RFC4180 转义含逗号/引号/换行的字段。
+- **脚本启用开关**：脚本列表项左侧新增 Checkbox，勾选后该脚本出现在「添加下载」弹窗的脚本下拉中；未启用脚本不显示。启用状态持久化到 `config.yaml` 的 `scripts.enabled` 段，重启后保持。
+- **内置脚本模板首次播种**：应用首次启动时自动将 4 个内置模板（`rename-by-date`、`filter-media`、`skip-duplicates`、`auto-archive`）写入脚本目录，默认全部禁用；用户删除后不再自动恢复，可从「模板」弹窗重新生成。播种标记 `templatesSeeded` 持久化到 config.yaml。
+- **目录历史组件 `DirSelect.vue`**：统一替换设置页与「添加下载」弹窗中的手动目录输入，支持最近 3 条历史下拉（按 `download`/`logExport`/`cache`/`temp`/`logDir` 分组）、浏览按钮与手工输入目录的自动入库。
+- **设置页「界面」段**：新增日志字体大小（10–28）与滚动条尺寸（6–24）两个 `InputNumber`，hint 注明 Ctrl+滚轮亦可调整字号。
+
+### Changed
+- `ScriptService.List()` 现在按 `config.IsScriptEnabled()` 填充每个脚本的 `enabled` 字段；`Delete()` 成功后调用 `cfg.ForgetScript()` 清理启用记录。
+- `DownloadService.SelectDirectory` 默认目录优先级改为 `currentDir` → `cfg.RecentDirs(kind)[0]` → `cfg.Get().DownloadDir`；用户选定后自动 `cfg.AddRecentDir(kind, picked)`。
+- `SettingsService.RecentDirs` / `AddRecentDir` 上限由 10 条降至 3 条，委托 `config.Manager` 统一管理。
+- `config.Manager` 新增 `UISettings`（`logFontSize`/`scrollbarSize`）、`EnabledScripts`、`TemplatesSeeded` 字段；`Update()` 内新增 UI 零值回默认与上下限钳制、RecentDirs 裁剪至 3 条。
+
 ## [0.14.0] - 2026-08-01 01:26:14
 
 ### Added

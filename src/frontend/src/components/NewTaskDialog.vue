@@ -25,10 +25,7 @@
 
     <div class="form-field">
       <label for="nt-dir">保存目录</label>
-      <div class="form-row">
-        <InputText id="nt-dir" v-model="dir" class="grow" :placeholder="settings.settings.downloadDir || '默认下载目录'" />
-        <Button icon="pi pi-folder-open" severity="secondary" outlined v-tooltip.top="'浏览…'" @click="browse" />
-      </div>
+      <DirSelect id="nt-dir" v-model="dir" kind="download" />
     </div>
 
     <div class="form-field">
@@ -39,7 +36,7 @@
         :options="scriptOptions"
         option-label="label"
         option-value="value"
-        placeholder="不使用脚本"
+        :placeholder="scriptPlaceholder"
         show-clear
         fluid
       />
@@ -80,10 +77,10 @@ import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
 import Dialog from 'primevue/dialog'
-import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import Textarea from 'primevue/textarea'
 
+import DirSelect from './DirSelect.vue'
 import { Download } from '../api'
 import type { Selection } from '../types'
 import { engine } from '../../wailsjs/go/models'
@@ -111,6 +108,7 @@ const group = ref(true)
 const skipSame = ref(true)
 const rewriteExt = ref(false)
 const creating = ref(false)
+const dirSelect = ref<InstanceType<typeof DirSelect> | null>(null)
 
 const urlList = computed(() =>
   urls.value
@@ -120,20 +118,15 @@ const urlList = computed(() =>
 )
 
 const scriptOptions = computed(() =>
-  scripts.scripts.map((s) => ({ label: s.name, value: s.name })),
+  scripts.enabled.map((s) => ({ label: s.name, value: s.name })),
+)
+
+const scriptPlaceholder = computed(() =>
+  scriptOptions.value.length ? '不使用脚本' : '无已启用脚本（到脚本页启用）',
 )
 
 function close() {
   emit('update:visible', false)
-}
-
-async function browse() {
-  try {
-    const picked = await Download.selectDirectory("download", dir.value)
-    if (picked) dir.value = picked
-  } catch (e: any) {
-    toast.add({ severity: 'error', summary: '选择目录失败', detail: String(e), life: 4000 })
-  }
 }
 
 async function create() {
@@ -158,6 +151,7 @@ async function create() {
       }),
     )
     urls.value = ''
+    dirSelect.value?.commit()
     emit('created')
     close()
   } catch (e: any) {

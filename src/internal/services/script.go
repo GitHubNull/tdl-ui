@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 
+	"tdl-ui/internal/config"
 	"tdl-ui/internal/logging"
 	"tdl-ui/internal/script"
 )
@@ -12,15 +13,25 @@ var logScript = logging.L("script")
 // ScriptService 用户脚本管理：CRUD、校验与试运行。
 type ScriptService struct {
 	store *script.Store
+	cfg   *config.Manager
 }
 
 // NewScriptService 创建脚本服务。
-func NewScriptService(store *script.Store) *ScriptService {
-	return &ScriptService{store: store}
+func NewScriptService(store *script.Store, cfg *config.Manager) *ScriptService {
+	return &ScriptService{store: store, cfg: cfg}
 }
 
-// List 列出全部脚本。
-func (s *ScriptService) List() ([]script.Meta, error) { return s.store.List() }
+// List 列出全部脚本，并按配置填充启用状态。
+func (s *ScriptService) List() ([]script.Meta, error) {
+	metas, err := s.store.List()
+	if err != nil {
+		return nil, err
+	}
+	for i := range metas {
+		metas[i].Enabled = s.cfg.IsScriptEnabled(metas[i].Name)
+	}
+	return metas, nil
+}
 
 // Read 读取脚本源码。
 func (s *ScriptService) Read(name string) (string, error) { return s.store.Read(name) }
@@ -40,6 +51,17 @@ func (s *ScriptService) Delete(name string) error {
 	logScript.Infof("删除脚本: %s", name)
 	if err := s.store.Delete(name); err != nil {
 		logScript.Errorf("删除脚本失败: %s err=%v", name, err)
+		return err
+	}
+	_ = s.cfg.ForgetScript(name)
+	return nil
+}
+
+// SetEnabled 设置脚本启用状态。
+func (s *ScriptService) SetEnabled(name string, enabled bool) error {
+	logScript.Infof("设置脚本启用状态: %s=%v", name, enabled)
+	if err := s.cfg.SetScriptEnabled(name, enabled); err != nil {
+		logScript.Errorf("设置脚本启用状态失败: %s err=%v", name, err)
 		return err
 	}
 	return nil

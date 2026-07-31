@@ -111,3 +111,159 @@ func TestTempDirYAMLRoundTrip(t *testing.T) {
 		t.Errorf("TempDir 往返应保留 %q，实际 %q", s.TempDir, got.TempDir)
 	}
 }
+
+// ---- UI 设置与上下限钳制 ----
+
+// TestUIWithDefaults 零值回默认并钳制上下限。
+func TestUIWithDefaults(t *testing.T) {
+	cases := []struct {
+		in   UISettings
+		want UISettings
+	}{
+		{in: UISettings{}, want: UISettings{LogFontSize: 14, ScrollbarSize: 10}},
+		{in: UISettings{LogFontSize: 5, ScrollbarSize: 3}, want: UISettings{LogFontSize: 10, ScrollbarSize: 6}},
+		{in: UISettings{LogFontSize: 50, ScrollbarSize: 100}, want: UISettings{LogFontSize: 28, ScrollbarSize: 24}},
+		{in: UISettings{LogFontSize: 18, ScrollbarSize: 12}, want: UISettings{LogFontSize: 18, ScrollbarSize: 12}},
+	}
+	for _, c := range cases {
+		got := c.in.withDefaults()
+		if got != c.want {
+			t.Errorf("withDefaults(%+v) = %+v, want %+v", c.in, got, c.want)
+		}
+	}
+}
+
+// TestUpdateUIClamped UI 字段经 Update 钳制。
+func TestUpdateUIClamped(t *testing.T) {
+	m := newTestManager(t)
+	s := m.Get()
+	s.UI = UISettings{LogFontSize: 50, ScrollbarSize: 1}
+	if err := m.Update(s); err != nil {
+		t.Fatalf("Update 失败: %v", err)
+	}
+	got := m.Get().UI
+	if got.LogFontSize != 28 || got.ScrollbarSize != 6 {
+		t.Errorf("UI 应被钳制，实际 %+v", got)
+	}
+}
+
+// ---- 目录历史 ----
+
+// TestAddRecentDir 去重、置顶、上限 3、非法 kind 报错。
+func TestAddRecentDir(t *testing.T) {
+	m := newTestManager(t)
+
+	// 非法 kind
+	if _, err := m.AddRecentDir("unknown", "/tmp"); err == nil {
+		t.Error("非法 kind 应报错")
+	}
+
+	// 正常添加
+	list, err := m.AddRecentDir("download", "/a")
+	if err != nil {
+		t.Fatalf("AddRecentDir 失败: %v", err)
+	}
+	if len(list) != 1 || list[0] != "/a" {
+		t.Errorf("首次添加后应为 [/a]，实际 %v", list)
+	}
+
+	// 置顶
+	list, _ = m.AddRecentDir("download", "/b")
+	list, _ = m.AddRecentDir("download", "/a")
+	if list[0] != "/a" || list[1] != "/b" {
+		t.Errorf("重复添加应置顶，实际 %v", list)
+	}
+
+	// 上限 3
+	list, _ = m.AddRecentDir("download", "/c")
+	list, _ = m.AddRecentDir("download", "/d")
+	if len(list) != 3 || list[0] != "/d" {
+		t.Errorf("应裁剪到 3 条且最新置顶，实际 %v", list)
+	}
+
+	// 不同 kind 独立
+	logList, _ := m.AddRecentDir("logExport", "/logs")
+	if len(logList) != 1 || logList[0] != "/logs" {
+		t.Errorf("logExport 应独立，实际 %v", logList)
+	}
+}
+
+// TestRecentDirsRoundTrip 目录历史经 Update 往返保留。
+func TestRecentDirsRoundTrip(t *testing.T) {
+	m := newTestManager(t)
+	s := m.Get()
+	s.RecentDirs = map[string][]string{
+		"download": {"/a", "/b"},
+	}
+	if err := m.Update(s); err != nil {
+		t.Fatalf("Update 失败: %v", err)
+	}
+	got := m.Get().RecentDirs["download"]
+	if len(got) != 2 || got[0] != "/a" {
+		t.Errorf("RecentDirs 往返失败，实际 %v", got)
+	}
+}
+
+// ---- 脚本启用状态 ----
+
+// TestSetScriptEnabled 设置、查询、删除清理。
+func TestSetScriptEnabled(t *testing.T) {
+	m := newTestManager(t)
+	if m.IsScriptEnabled("foo") {
+		t.Error("默认应未启用")
+	}
+	if err := m.SetScriptEnabled("foo", true); err != nil {
+		t.Fatalf("SetScriptEnabled 失败: %v", err)
+	}
+	if !m.IsScriptEnabled("foo") {
+		t.Error("启用后应为 true")
+	}
+	if err := m.SetScriptEnabled("foo", false); err != nil {
+		t.Fatalf("SetScriptEnabled 失败: %v", err)
+	}
+	if m.IsScriptEnabled("foo") {
+		t.Error("禁用后应为 false")
+	}
+
+	// 重新 NewManagerAt 读取持久化值
+	m2, err := NewManagerAt(m.DataDir())
+	if err != nil {
+		t.Fatalf("NewManagerAt 失败: %v", err)
+	}
+	if m2.IsScriptEnabled("foo") {
+		t.Error("持久化后禁用态应保留")
+	}
+}
+
+// TestTemplatesSeededRoundTrip TemplatesSeeded 经 Update 往返保留。
+func TestTemplatesSeededRoundTrip(t *testing.T) {
+	m := newTestManager(t)
+	s := m.Get()
+	s.TemplatesSeeded = true
+	if err := m.Update(s); err != nil {
+		t.Fatalf("Update 失败: %v", err)
+	}
+	m2, err := NewManagerAt(m.DataDir())
+	if err != nil {
+		t.Fatalf("NewManagerAt 失败: %v", err)
+	}
+	if !m2.Get().TemplatesSeeded {
+		t.Error("TemplatesSeeded 应持久化保留")
+	}
+}
+
+// TestRecentDirsClampedTo3 Update 时超长的 RecentDirs 被裁剪。
+func TestRecentDirsClampedTo3(t *testing.T) {
+	m := newTestManager(t)
+	s := m.Get()
+	s.RecentDirs = map[string][]string{
+		"download": {"/a", "/b", "/c", "/d", "/e"},
+	}
+	if err := m.Update(s); err != nil {
+		t.Fatalf("Update 失败: %v", err)
+	}
+	got := m.Get().RecentDirs["download"]
+	if len(got) != 3 {
+		t.Errorf("应裁剪到 3 条，实际 %d 条", len(got))
+	}
+}

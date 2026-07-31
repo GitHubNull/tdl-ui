@@ -27,6 +27,7 @@ interface Snapshot {
   hasMore: boolean
   applied: AppliedFilters
   jumpOffsetDate: number
+  scrollTop: number
 }
 
 // 模块级 LRU：跨组件卸载保留最近浏览对话的媒体状态
@@ -44,6 +45,8 @@ export function useMediaPager(options: {
   onError?: (e: unknown) => void
   /** 一轮加载结束后是否自动继续（如滚动哨兵仍在视口内） */
   autoContinue?: () => boolean
+  /** 保存快照时获取当前滚动位置 */
+  scrollTop?: () => number
 }) {
   const items = ref<MediaItem[]>([])
   const offset = ref(0)
@@ -52,6 +55,7 @@ export function useMediaPager(options: {
   const failed = ref(false)
   const applied = ref<AppliedFilters>(emptyFilters())
   const jumpOffsetDate = ref(0)
+  const restoredScrollTop = ref(0)
 
   let currentId = 0
   // 请求代际：每次重置/切换递增，在途请求返回后校验不等则丢弃
@@ -65,6 +69,7 @@ export function useMediaPager(options: {
     loading.value = false
     failed.value = false
     jumpOffsetDate.value = 0
+    restoredScrollTop.value = 0
   }
 
   /** 保存当前对话的浏览快照（切换对话或组件卸载时调用） */
@@ -77,6 +82,7 @@ export function useMediaPager(options: {
       hasMore: hasMore.value,
       applied: { ...applied.value, kinds: [...applied.value.kinds], exts: [...applied.value.exts] },
       jumpOffsetDate: jumpOffsetDate.value,
+      scrollTop: options.scrollTop?.() ?? 0,
     })
     while (cache.size > CACHE_LIMIT) {
       cache.delete(cache.keys().next().value!)
@@ -100,6 +106,7 @@ export function useMediaPager(options: {
       jumpOffsetDate.value = snap.jumpOffsetDate
       loading.value = false
       failed.value = false
+      restoredScrollTop.value = snap.scrollTop
       return true
     }
     resetState()
@@ -181,6 +188,7 @@ export function useMediaPager(options: {
     failed,
     applied,
     jumpOffsetDate,
+    restoredScrollTop,
     switchTo,
     saveSnapshot,
     applyFilters,

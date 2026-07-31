@@ -104,6 +104,17 @@ func main() {
 	})
 
 	scriptStore := script.NewStore(cfg.ScriptDir())
+
+	// 首次启动时播种内置脚本模板（默认禁用）
+	if !cfg.Get().TemplatesSeeded {
+		if n, err := scriptStore.SeedTemplates(); err != nil {
+			logApp.Warnf("写入内置脚本模板失败: %v", err)
+		} else {
+			_ = cfg.MarkTemplatesSeeded()
+			logApp.Infof("已写入 %d 个内置脚本模板（默认禁用）", n)
+		}
+	}
+
 	taskManager := engine.NewManager(engine.Deps{
 		Cfg:     cfg,
 		KV:      kvs,
@@ -114,7 +125,7 @@ func main() {
 
 	authSvc := services.NewAuthService(cfg, kvs, emitter)
 	downloadSvc := services.NewDownloadService(cfg, taskManager, emitter)
-	scriptSvc := services.NewScriptService(scriptStore)
+	scriptSvc := services.NewScriptService(scriptStore, cfg)
 	chatSvc := services.NewChatService(cfg, kvs)
 	// 设置页「清空缓存」经 thumbCache 在锁保护下执行，避免与缓存写入竞争（SVC-18）
 	settingsSvc := services.NewSettingsService(cfg, chatSvc.ClearThumbCache)

@@ -2,146 +2,118 @@
   <Dialog
     :visible="visible"
     modal
-    header="内置脚本模板"
-    :style="{ width: '640px' }"
+    header="从模板创建"
+    :style="{ width: '520px' }"
     @update:visible="(v: boolean) => emit('update:visible', v)"
-    @show="load"
   >
-    <p class="dialog-hint">选择一个模板灌入编辑器，可直接编辑后保存为自己的脚本。</p>
-
     <div v-if="!templates.length" class="empty-state small">
       <i class="pi pi-copy" />
-      <p>没有可用的内置模板</p>
+      <p>暂无可用模板</p>
     </div>
-
-    <div
-      v-for="t in templates"
-      :key="t.id"
-      class="tpl-card"
-      :class="{ active: t.id === selectedId }"
-      @click="selectedId = t.id"
-    >
+    <div v-for="t in templates" :key="t.id" class="tpl-card" @click="select(t)">
       <div class="tpl-head">
         <span class="tpl-name">{{ t.name }}</span>
         <Tag :value="t.category" severity="secondary" />
-        <span class="grow" />
-        <span class="tpl-id mono">{{ t.id }}.go</span>
       </div>
       <p class="tpl-desc">{{ t.description }}</p>
-      <p v-if="t.notes" class="tpl-notes"><i class="pi pi-info-circle" /> {{ t.notes }}</p>
+      <p class="tpl-notes"><i class="pi pi-info-circle" /> {{ t.notes }}</p>
     </div>
-
-    <template #footer>
-      <Button label="取消" severity="secondary" text @click="close" />
-      <Button label="载入编辑器" icon="pi pi-file-import" :disabled="!selected" @click="pick" />
-    </template>
   </Dialog>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import Button from 'primevue/button'
+import { ref, onMounted } from 'vue'
 import Dialog from 'primevue/dialog'
 import Tag from 'primevue/tag'
 
 import { Script } from '../api'
 import type { ScriptTemplate } from '../types'
 
-defineProps<{ visible: boolean }>()
 const emit = defineEmits<{
   'update:visible': [boolean]
-  pick: [ScriptTemplate]
+  select: [ScriptTemplate]
 }>()
 
+defineProps<{ visible: boolean }>()
+
 const templates = ref<ScriptTemplate[]>([])
-const selectedId = ref('')
 
-const selected = computed(() => templates.value.find((t) => t.id === selectedId.value))
-
-async function load() {
+onMounted(async () => {
   try {
     templates.value = (await Script.templates()) ?? []
   } catch {
-    templates.value = []
+    /* 非 Wails 环境静默 */
   }
-  if (!selected.value) selectedId.value = templates.value[0]?.id ?? ''
-}
+})
 
-function close() {
+function select(t: ScriptTemplate) {
+  emit('select', t)
   emit('update:visible', false)
-}
-
-function pick() {
-  const t = selected.value
-  if (!t) return
-  emit('pick', t)
-  close()
 }
 </script>
 
 <style scoped>
-.dialog-hint {
-  margin: 0 0 12px;
-  font-size: 12px;
-  color: var(--p-text-muted-color);
+.tpl-card {
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--p-surface-200);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  margin-bottom: 8px;
 }
 
-.tpl-card {
-  border: 1px solid var(--p-content-border-color);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
-  cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+.app-dark .tpl-card {
+  border-color: var(--p-surface-700);
 }
 
 .tpl-card:hover {
   background: var(--p-surface-100);
+  border-color: var(--p-primary-color);
 }
 
 .app-dark .tpl-card:hover {
   background: var(--p-surface-800);
 }
 
-.tpl-card.active {
-  border-color: var(--p-primary-color);
-  background: var(--p-primary-50);
-}
-
-.app-dark .tpl-card.active {
-  background: color-mix(in srgb, var(--p-primary-color) 18%, transparent);
-}
-
 .tpl-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-}
-
-.tpl-head .grow {
-  flex: 1;
+  margin-bottom: 6px;
 }
 
 .tpl-name {
-  font-size: 13px;
   font-weight: 600;
-}
-
-.tpl-id {
-  font-size: 11px;
-  color: var(--p-text-muted-color);
+  font-size: 14px;
 }
 
 .tpl-desc {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 13px;
+  color: var(--p-text-muted-color);
+  margin: 0 0 6px;
+  line-height: 1.4;
 }
 
 .tpl-notes {
-  margin: 6px 0 0;
-  font-size: 11px;
+  font-size: 12px;
+  color: var(--p-orange-400);
+  margin: 0;
+}
+
+.tpl-notes i {
+  margin-right: 4px;
+}
+
+.empty-state.small {
+  padding: 32px;
+  text-align: center;
   color: var(--p-text-muted-color);
-  line-height: 1.6;
+}
+
+.empty-state.small i {
+  font-size: 1.8rem;
+  display: block;
+  margin-bottom: 8px;
 }
 </style>

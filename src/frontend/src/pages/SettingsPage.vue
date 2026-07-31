@@ -33,10 +33,7 @@
       <h2 class="section-title">下载</h2>
       <div class="form-field">
         <label for="dl-dir">默认下载目录</label>
-        <div class="form-row">
-          <InputText id="dl-dir" v-model="store.settings.downloadDir" class="grow" />
-          <Button icon="pi pi-folder-open" severity="secondary" outlined v-tooltip.top="'浏览…'" @click="browse" />
-        </div>
+        <DirSelect id="dl-dir" ref="dlDirSelect" v-model="store.settings.downloadDir" kind="download" />
       </div>
       <div class="form-field">
         <label for="tpl">默认命名模板（Go text/template，与 tdl 兼容）</label>
@@ -78,18 +75,12 @@
       </div>
       <div class="form-field">
         <label for="cache-dir">缓存目录</label>
-        <div class="form-row">
-          <InputText id="cache-dir" v-model="store.settings.cacheDir" class="grow" placeholder="留空使用 <数据目录>\cache" />
-          <Button icon="pi pi-folder-open" severity="secondary" outlined v-tooltip.top="'浏览…'" @click="browseCacheDir" />
-        </div>
+        <DirSelect id="cache-dir" ref="cacheDirSelect" v-model="store.settings.cacheDir" kind="cache" />
         <span class="hint">缩略图与预览缓存的存放位置，保存后立即生效</span>
       </div>
       <div class="form-field">
         <label for="temp-dir">视频临时目录</label>
-        <div class="form-row">
-          <InputText id="temp-dir" v-model="store.settings.tempDir" class="grow" placeholder="留空使用 <数据目录>\tmp" />
-          <Button icon="pi pi-folder-open" severity="secondary" outlined v-tooltip.top="'浏览…'" @click="browseTempDir" />
-        </div>
+        <DirSelect id="temp-dir" ref="tempDirSelect" v-model="store.settings.tempDir" kind="temp" />
         <span class="hint">在线视频边下边播的分段暂存位置，上限 2GB 自动清理，保存后立即生效</span>
       </div>
       <div class="form-field">
@@ -124,10 +115,7 @@
       </div>
       <div class="form-field">
         <label for="log-dir">日志目录</label>
-        <div class="form-row">
-          <InputText id="log-dir" v-model="store.settings.log.dir" class="grow" placeholder="留空使用默认目录" />
-          <Button icon="pi pi-folder-open" severity="secondary" outlined v-tooltip.top="'浏览…'" @click="browseLogDir" />
-        </div>
+        <DirSelect id="log-dir" ref="logDirSelect" v-model="store.settings.log.dir" kind="logDir" />
         <span class="hint">默认为程序目录下的 logs 子目录</span>
       </div>
       <div class="form-field">
@@ -177,7 +165,8 @@ import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import SelectButton from 'primevue/selectbutton'
 
-import { Download, LogApi, SettingsApi } from '../api'
+import DirSelect from '../components/DirSelect.vue'
+import { LogApi, SettingsApi } from '../api'
 import type { ThemeMode } from '../theme'
 import { useAuthStore } from '../stores/auth'
 import { useSettingsStore } from '../stores/settings'
@@ -188,6 +177,11 @@ const router = useRouter()
 const toast = useToast()
 const confirm = useConfirm()
 const saving = ref(false)
+
+const dlDirSelect = ref<InstanceType<typeof DirSelect> | null>(null)
+const cacheDirSelect = ref<InstanceType<typeof DirSelect> | null>(null)
+const tempDirSelect = ref<InstanceType<typeof DirSelect> | null>(null)
+const logDirSelect = ref<InstanceType<typeof DirSelect> | null>(null)
 
 const accountHint = computed(() =>
   auth.loggedIn ? `已登录：${auth.username || auth.userId}` : '尚未登录 Telegram 账号',
@@ -214,42 +208,6 @@ const logLevelOptions = [
 
 function onTheme(mode: ThemeMode) {
   store.applyTheme(mode)
-}
-
-async function browse() {
-  try {
-    const picked = await Download.selectDirectory("download", store.settings.downloadDir)
-    if (picked) store.settings.downloadDir = picked
-  } catch (e: any) {
-    toast.add({ severity: 'error', summary: '选择目录失败', detail: String(e), life: 4000 })
-  }
-}
-
-async function browseLogDir() {
-  try {
-    const picked = await Download.selectDirectory("logDir", store.settings.log.dir)
-    if (picked) store.settings.log.dir = picked
-  } catch (e: any) {
-    toast.add({ severity: 'error', summary: '选择目录失败', detail: String(e), life: 4000 })
-  }
-}
-
-async function browseCacheDir() {
-  try {
-    const picked = await Download.selectDirectory("cache", store.settings.cacheDir)
-    if (picked) store.settings.cacheDir = picked
-  } catch (e: any) {
-    toast.add({ severity: 'error', summary: '选择目录失败', detail: String(e), life: 4000 })
-  }
-}
-
-async function browseTempDir() {
-  try {
-    const picked = await Download.selectDirectory("temp", store.settings.tempDir)
-    if (picked) store.settings.tempDir = picked
-  } catch (e: any) {
-    toast.add({ severity: 'error', summary: '选择目录失败', detail: String(e), life: 4000 })
-  }
 }
 
 function onClearCache() {
@@ -295,6 +253,11 @@ async function save() {
   saving.value = true
   try {
     await store.save()
+    // 保存成功后把各目录字段 commit 进历史
+    await dlDirSelect.value?.commit()
+    await cacheDirSelect.value?.commit()
+    await tempDirSelect.value?.commit()
+    await logDirSelect.value?.commit()
     toast.add({ severity: 'success', summary: '设置已保存', life: 2500 })
   } catch (e: any) {
     toast.add({ severity: 'error', summary: '保存失败', detail: String(e), life: 5000 })
