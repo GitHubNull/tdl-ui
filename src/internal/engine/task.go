@@ -181,7 +181,7 @@ func (t *Task) addFile(f TaskFile) {
 			TaskID: t.ID, Name: f.Name, Path: f.Path, Size: f.Size, State: f.State,
 			DialogID: f.DialogID, MessageID: f.MessageID,
 		}); err != nil {
-			logEngine.Errorf("写入文件记录失败: id=%s err=%v", t.ID, err)
+			logStoreErr(err, "写入文件记录失败: id=%s err=%v", t.ID, err)
 		}
 	}
 }
@@ -215,7 +215,7 @@ func (t *Task) finishFile(oldPath string, f TaskFile) {
 			TaskID: t.ID, Name: f.Name, Path: f.Path, Size: f.Size, State: f.State,
 			DialogID: f.DialogID, MessageID: f.MessageID,
 		}); err != nil {
-			logEngine.Errorf("完成文件记录失败: id=%s err=%v", t.ID, err)
+			logStoreErr(err, "完成文件记录失败: id=%s err=%v", t.ID, err)
 		}
 	}
 }
@@ -232,7 +232,7 @@ func (t *Task) markFileFailed(path string) {
 	t.mu.Unlock()
 	if t.mgr.deps.Store != nil {
 		if err := t.mgr.deps.Store.MarkFileFailed(context.Background(), t.ID, path); err != nil {
-			logEngine.Errorf("标记文件失败出错: id=%s err=%v", t.ID, err)
+			logStoreErr(err, "标记文件失败出错: id=%s err=%v", t.ID, err)
 		}
 	}
 }
@@ -250,7 +250,7 @@ func (t *Task) dropFile(path string) {
 	t.mu.Unlock()
 	if t.mgr.deps.Store != nil {
 		if err := t.mgr.deps.Store.DropFile(context.Background(), t.ID, path); err != nil {
-			logEngine.Errorf("移除文件记录失败: id=%s err=%v", t.ID, err)
+			logStoreErr(err, "移除文件记录失败: id=%s err=%v", t.ID, err)
 		}
 	}
 }

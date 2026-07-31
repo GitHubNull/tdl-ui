@@ -3,6 +3,7 @@ package script
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"tdl-ui/internal/scriptapi"
 )
@@ -242,5 +243,54 @@ func Rename(f api.FileInfo) string {
 `
 	if _, err := Load(src); err != nil {
 		t.Fatalf("白名单内的纯计算包应可用: %v", err)
+	}
+}
+
+// CODE-001 回归：超时熔断后的后续调用必须是跳过语义（立即返回），而非等锁排队。
+func TestFusedFilterSkipsImmediately(t *testing.T) {
+	old := callTimeout
+	callTimeout = 50 * time.Millisecond
+	defer func() { callTimeout = old }()
+
+	// 长阻塞模拟死循环：泄漏的执行体停在 Sleep 中，不吃测试进程 CPU
+	src := `package main
+
+import (
+	"time"
+
+	"tdlui/api"
+)
+
+func Filter(f api.FileInfo) bool {
+	time.Sleep(time.Hour)
+	return true
+}
+`
+	c, err := Load(src)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	fi := scriptapi.FileInfo{FileName: "a.mp4"}
+	keep, err := c.SafeFilter(fi)
+	if err == nil {
+		t.Fatal("首次调用应超时返回错误")
+	}
+	if !keep {
+		t.Fatal("超时兜底应保留文件")
+	}
+	if c.HasFilter() {
+		t.Fatal("超时后 Filter 应已熔断")
+	}
+
+	start := time.Now()
+	for i := 0; i < 100; i++ {
+		keep, err = c.SafeFilter(fi)
+		if err != nil || !keep {
+			t.Fatalf("熔断后第 %d 次调用应直接放行: keep=%v err=%v", i+1, keep, err)
+		}
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("熔断后 100 次调用耗时 %s，应为跳过语义（<1s）", elapsed)
 	}
 }

@@ -3,10 +3,22 @@ package engine
 import (
 	"context"
 
+	"github.com/go-faster/errors"
+
 	"tdl-ui/internal/store"
 )
 
 // 本文件收敛任务的 SQLite 持久化：store 行与内存结构的双向映射、状态/断点写回。
+
+// logStoreErr 持久化错误统一出口：存储已进入关闭阶段（关闭编排超时后的逃逸
+// goroutine 写入）降级为 Debug 不刷屏，其余保持 Error（ARC-002）。
+func logStoreErr(err error, format string, args ...any) {
+	if errors.Is(err, store.ErrStoreClosed) {
+		logEngine.Debugf(format, args...)
+		return
+	}
+	logEngine.Errorf(format, args...)
+}
 
 // loadFromStore 从 SQLite 恢复任务；上次退出时仍在运行/排队的任务恢复为已暂停（可断点续传）。
 func (m *Manager) loadFromStore() {
@@ -149,7 +161,7 @@ func (t *Task) persistState() {
 	t.mu.Unlock()
 	// 状态写回多发生在暂停/取消之后，不得随任务 ctx 中断（STO-03）。
 	if err := t.mgr.deps.Store.UpdateTaskState(context.Background(), t.ID, status, errMsg, total, finished, failed); err != nil {
-		logEngine.Errorf("更新任务状态失败: id=%s err=%v", t.ID, err)
+		logStoreErr(err, "更新任务状态失败: id=%s err=%v", t.ID, err)
 	}
 }
 
@@ -161,6 +173,6 @@ func (t *Task) saveResumeKey(key string) {
 	}
 	// 断点丢失代价是重复下载，不得随任务 ctx 中断（STO-03）。
 	if err := t.mgr.deps.Store.AddFinished(context.Background(), t.ID, key); err != nil {
-		logEngine.Errorf("保存断点失败: id=%s err=%v", t.ID, err)
+		logStoreErr(err, "保存断点失败: id=%s err=%v", t.ID, err)
 	}
 }

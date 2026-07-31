@@ -94,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Select from 'primevue/select'
@@ -164,6 +164,8 @@ watch(query, (q) => {
     debouncedQuery.value = q
   }, QUERY_DEBOUNCE_MS)
 })
+// CODE-002：卸载时清掉未决防抖定时器，避免回调写入已卸载组件的 ref
+onBeforeUnmount(() => clearTimeout(queryTimer))
 
 // FE-22：编译结果与错误信息均为纯 computed，不在 computed 内写状态
 const compiled = computed<{ re: RegExp | null; error: string }>(() => {

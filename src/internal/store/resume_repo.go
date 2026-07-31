@@ -30,6 +30,9 @@ func (s *Store) LoadFinished(ctx context.Context, taskID string) (map[string]str
 
 // AddFinished 追加单个断点 key（每文件完成时调用，O(1) 行级写入）。
 func (s *Store) AddFinished(ctx context.Context, taskID, key string) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO resume_keys (task_id, resume_key) VALUES (?,?)`, taskID, key)
 	if err != nil {
 		return errors.Wrap(err, "保存断点失败")
@@ -39,6 +42,9 @@ func (s *Store) AddFinished(ctx context.Context, taskID, key string) error {
 
 // SaveFinished 批量补写断点集合（任务中断时兜底持久化，幂等）。
 func (s *Store) SaveFinished(ctx context.Context, taskID string, finished map[string]struct{}) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -55,6 +61,9 @@ func (s *Store) SaveFinished(ctx context.Context, taskID string, finished map[st
 
 // DeleteResume 删除任务断点行（Restart 或任务成功完成时调用）。
 func (s *Store) DeleteResume(ctx context.Context, taskID string) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `DELETE FROM resume_keys WHERE task_id=?`, taskID)
 	return err
 }

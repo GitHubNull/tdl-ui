@@ -1,28 +1,22 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 
+// 首屏可能直达登录页，保留静态导入；其余页面懒加载拆 chunk（CODE-004）
 import LoginPage from './pages/LoginPage.vue'
-import ChatsPage from './pages/ChatsPage.vue'
-import TasksPage from './pages/TasksPage.vue'
-import ScriptsPage from './pages/ScriptsPage.vue'
-import LogsPage from './pages/LogsPage.vue'
-import SettingsPage from './pages/SettingsPage.vue'
-import TutorialPage from './pages/TutorialPage.vue'
-import AboutPage from './pages/AboutPage.vue'
 
 // Wails 嵌入环境使用 hash 路由避免刷新丢路径
 export const router = createRouter({
   history: createWebHashHistory(),
   routes: [
     { path: '/', redirect: '/chats' },
-    { path: '/chats', component: ChatsPage, meta: { title: '对话', icon: 'chats' } },
-    { path: '/chats/:id', component: ChatsPage, meta: { hidden: true } },
+    { path: '/chats', component: () => import('./pages/ChatsPage.vue'), meta: { title: '对话', icon: 'chats' } },
+    { path: '/chats/:id', component: () => import('./pages/ChatsPage.vue'), meta: { hidden: true } },
     { path: '/login', component: LoginPage, meta: { title: '账号', icon: 'account', hidden: true } },
-    { path: '/tasks', component: TasksPage, meta: { title: '下载', icon: 'download' } },
-    { path: '/scripts', component: ScriptsPage, meta: { title: '脚本', icon: 'scripts' } },
-    { path: '/logs', component: LogsPage, meta: { title: '日志', icon: 'logs' } },
-    { path: '/settings', component: SettingsPage, meta: { title: '设置', icon: 'settings' } },
-    { path: '/tutorial', component: TutorialPage, meta: { title: '教程', icon: 'tutorial' } },
-    { path: '/tutorial/:chapter', component: TutorialPage, meta: { hidden: true } },
-    { path: '/about', component: AboutPage, meta: { title: '关于', icon: 'about' } },
+    { path: '/tasks', component: () => import('./pages/TasksPage.vue'), meta: { title: '下载', icon: 'download' } },
+    { path: '/scripts', component: () => import('./pages/ScriptsPage.vue'), meta: { title: '脚本', icon: 'scripts' } },
+    { path: '/logs', component: () => import('./pages/LogsPage.vue'), meta: { title: '日志', icon: 'logs' } },
+    { path: '/settings', component: () => import('./pages/SettingsPage.vue'), meta: { title: '设置', icon: 'settings' } },
+    { path: '/tutorial', component: () => import('./pages/TutorialPage.vue'), meta: { title: '教程', icon: 'tutorial' } },
+    { path: '/tutorial/:chapter', component: () => import('./pages/TutorialPage.vue'), meta: { hidden: true } },
+    { path: '/about', component: () => import('./pages/AboutPage.vue'), meta: { title: '关于', icon: 'about' } },
   ],
 })

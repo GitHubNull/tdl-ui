@@ -9,6 +9,9 @@ import (
 
 // UpsertFile 插入或按 (task_id, path) 覆盖文件记录（对应内存 addFile 的同路径覆盖语义）。
 func (s *Store) UpsertFile(ctx context.Context, f File) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
 	now := nowStr()
 	if f.CreatedAt == "" {
 		f.CreatedAt = now
@@ -29,6 +32,9 @@ func (s *Store) UpsertFile(ctx context.Context, f File) error {
 // FinishFile 把 oldPath（.tmp）行替换为最终文件记录：
 // 同事务内先删可能已存在的最终路径旧行，再改写 .tmp 行的路径（对齐内存 finishFile 语义）。
 func (s *Store) FinishFile(ctx context.Context, taskID, oldPath string, f File) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -65,6 +71,9 @@ func (s *Store) FinishFile(ctx context.Context, taskID, oldPath string, f File) 
 
 // MarkFileFailed 标记文件状态为 failed。
 func (s *Store) MarkFileFailed(ctx context.Context, taskID, path string) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `UPDATE files SET state='failed', updated_at=? WHERE task_id=? AND path=?`,
 		nowStr(), taskID, path)
 	return err
@@ -72,6 +81,9 @@ func (s *Store) MarkFileFailed(ctx context.Context, taskID, path string) error {
 
 // DropFile 移除文件记录（临时文件已清理）。
 func (s *Store) DropFile(ctx context.Context, taskID, path string) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `DELETE FROM files WHERE task_id=? AND path=?`, taskID, path)
 	return err
 }
@@ -107,6 +119,9 @@ func (s *Store) ListFiles(ctx context.Context, taskID string) ([]File, error) {
 func (s *Store) DeleteFilesByPath(ctx context.Context, taskID string, paths []string) error {
 	if len(paths) == 0 {
 		return nil
+	}
+	if err := s.checkOpen(); err != nil {
+		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

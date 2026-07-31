@@ -51,11 +51,12 @@ type AuthService struct {
 	// 重登/登出前存在活跃下载时明确拒绝；可为空。
 	HasActiveDownloads func() bool
 
-	mu     sync.Mutex
-	gen    uint64 // 登录流程代际计数，每次 begin 递增
-	cancel context.CancelFunc
-	codeCh chan string
-	pwdCh  chan string
+	mu       sync.Mutex
+	gen      uint64 // 登录流程代际计数，每次 begin 递增
+	cancel   context.CancelFunc
+	codeCh   chan string
+	pwdCh    chan string
+	flowDone chan struct{} // 当前代际流程 goroutine 的退出信号（LOGIC-001：登出/重登需 join）
 }
 
 // NewAuthService 创建登录服务。
@@ -68,15 +69,49 @@ type LoginStatus struct {
 	LoggedIn bool   `json:"loggedIn"`
 	UserID   int64  `json:"userId"`
 	Username string `json:"username"`
+	// SessionPresent kv 中是否存在会话凭据（LOGIC-003：config 展示态与 kv
+	// 权威源失步时，前端据此提示"检测到本地会话，可直接重连或重新登录"）。
+	SessionPresent bool `json:"sessionPresent"`
 }
 
 // Status 返回本地记录的登录状态。
 func (s *AuthService) Status() LoginStatus {
 	st := s.cfg.Get()
 	return LoginStatus{
-		LoggedIn: st.LoggedInUserID != 0,
-		UserID:   st.LoggedInUserID,
-		Username: st.LoggedInUsername,
+		LoggedIn:       st.LoggedInUserID != 0,
+		UserID:         st.LoggedInUserID,
+		Username:       st.LoggedInUsername,
+		SessionPresent: s.sessionPresent(),
+	}
+}
+
+// sessionPresent 检查 kv 中是否存在会话 key（纯本地读，不发网络请求）。
+func (s *AuthService) sessionPresent() bool {
+	kvd, err := s.kv.Open(engine.Namespace)
+	if err != nil {
+		return false
+	}
+	_, err = kvd.Get(context.Background(), keygen.New(sessionKeyName))
+	return err == nil
+}
+
+// ReconcileOnStartup 启动时以 kv 会话为权威源对账展示用登录态（LOGIC-003）：
+// kv 无会话而 config 标记已登录 → 清零 config，UI 显示与实际功能一致；
+// kv 有会话而 config 无登录态 → 不改写 config（无法从会话反查用户名，
+// 不伪造展示信息），由 Status 的 sessionPresent 提示前端。
+func (s *AuthService) ReconcileOnStartup() {
+	if s.sessionPresent() {
+		return
+	}
+	st := s.cfg.Get()
+	if st.LoggedInUserID == 0 && st.LoggedInUsername == "" {
+		return
+	}
+	logAuth.Warnf("登录态失步：kv 无会话但配置标记已登录（用户 %d），清零展示登录态", st.LoggedInUserID)
+	st.LoggedInUserID = 0
+	st.LoggedInUsername = ""
+	if err := s.cfg.Update(st); err != nil {
+		logAuth.Warnf("清零登录态配置失败: %v", err)
 	}
 }
 
@@ -147,13 +182,36 @@ func (s *AuthService) CancelLogin() {
 	}
 }
 
+// cancelLoginAndWait 取消登录流程并等待流程 goroutine 真正退出（LOGIC-001：
+// cancel 只是异步信号，登出/重登若不 join 就删除会话，慢退出的 gotd 层可能
+// 事后回写会话形成幽灵登录态）。超时未退出返回错误，调用方不得继续删会话。
+func (s *AuthService) cancelLoginAndWait(timeout time.Duration) error {
+	s.mu.Lock()
+	done := s.flowDone
+	s.mu.Unlock()
+
+	s.CancelLogin()
+	if done == nil { // 从未启动过登录流程
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	case <-time.After(timeout):
+		return errors.New("登录流程未能及时终止，请稍后重试")
+	}
+}
+
 // Logout 清除本地会话数据。存在活跃下载时拒绝登出，
 // 避免下载任务拿着已删除的会话继续运行直到报不可解释的错误。
 func (s *AuthService) Logout() error {
 	if s.HasActiveDownloads != nil && s.HasActiveDownloads() {
 		return errors.New("存在进行中的下载任务，请先暂停或取消全部下载后再登出")
 	}
-	s.CancelLogin() // 同时终止进行中的登录流程
+	// 终止进行中的登录流程并等待其真正退出，防止慢退出的流程事后回写会话（LOGIC-001）
+	if err := s.cancelLoginAndWait(3 * time.Second); err != nil {
+		return err
+	}
 	logAuth.Infof("开始登出，清除本地会话")
 	kvd, err := s.kv.Open(engine.Namespace)
 	if err != nil {
@@ -190,6 +248,10 @@ func (s *AuthService) Logout() error {
 func (s *AuthService) prepareLogin() error {
 	if s.HasActiveDownloads != nil && s.HasActiveDownloads() {
 		return errors.New("存在进行中的下载任务，请先暂停或取消全部下载后再重新登录")
+	}
+	// 上一个登录流程若仍在运行，等待其退出后再启动新流程，避免两代流程并发读写会话（LOGIC-001）
+	if err := s.cancelLoginAndWait(3 * time.Second); err != nil {
+		return err
 	}
 	if s.OnSessionChanged != nil {
 		s.OnSessionChanged()
@@ -365,12 +427,13 @@ func (s *AuthService) restoreSession(ctx context.Context, kvd storage.Storage, s
 
 // ---- 内部实现 ----
 
-// loginFlow 一次登录流程的代际上下文：ctx、交互通道与代际号均归属本代。
+// loginFlow 一次登录流程的代际上下文：ctx、交互通道、代际号与退出信号均归属本代。
 type loginFlow struct {
 	ctx    context.Context
 	gen    uint64
 	codeCh chan string
 	pwdCh  chan string
+	done   chan struct{} // 流程 goroutine 退出时关闭（LOGIC-001）
 }
 
 // begin 初始化一次登录流程：取消上一代流程并分配新代际。
@@ -387,11 +450,14 @@ func (s *AuthService) begin() *loginFlow {
 	s.cancel = cancel
 	s.codeCh = make(chan string, 1)
 	s.pwdCh = make(chan string, 1)
-	return &loginFlow{ctx: ctx, gen: s.gen, codeCh: s.codeCh, pwdCh: s.pwdCh}
+	s.flowDone = make(chan struct{})
+	return &loginFlow{ctx: ctx, gen: s.gen, codeCh: s.codeCh, pwdCh: s.pwdCh, done: s.flowDone}
 }
 
 // finish 仅当自己仍是当前代际时才清理 cancel，
 // 避免旧流程的异步收尾取消刚启动的新流程。
+// 注意：gen 相等意味着 begin 之后没有新流程启动过，此时 s.cancel
+// 必然仍是本流程自己的 cancel，取消的是自己，语义安全（审计已验证，勿改）。
 func (s *AuthService) finish(gen uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -413,6 +479,7 @@ func (s *AuthService) isCurrent(gen uint64) bool {
 
 // runCodeLogin 验证码登录（对应 ref/tdl/app/login/code.go，交互替换为事件+通道）。
 func (s *AuthService) runCodeLogin(flow *loginFlow, phone string) {
+	defer close(flow.done) // LOGIC-001：宣告流程 goroutine 已退出，供登出/重登 join
 	defer s.finish(flow.gen)
 	ctx := flow.ctx
 
@@ -463,6 +530,7 @@ func (s *AuthService) runCodeLogin(flow *loginFlow, phone string) {
 
 // runQRLogin 二维码登录（对应 ref/tdl/app/login/qr.go，二维码渲染移至前端）。
 func (s *AuthService) runQRLogin(flow *loginFlow) {
+	defer close(flow.done) // LOGIC-001：宣告流程 goroutine 已退出，供登出/重登 join
 	defer s.finish(flow.gen)
 	ctx := flow.ctx
 

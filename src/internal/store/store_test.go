@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/go-faster/errors"
 )
 
 var testCtx = context.Background()
@@ -172,5 +174,37 @@ func TestImportLegacyJSON(t *testing.T) {
 	}
 	if _, err := os.Stat(jsonPath + ".bak"); err != nil {
 		t.Fatal("应生成 tasks.json.bak")
+	}
+}
+
+// TestClosedStoreRejectsWrites 关闭后写入统一返回 ErrStoreClosed（ARC-002：
+// 关闭编排超时后逃逸 goroutine 的写入不落到已关闭的 *sql.DB 上）。
+func TestClosedStoreRejectsWrites(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.InsertTask(testCtx, Task{ID: "t1", Dir: "/tmp", Status: "queued"}, nil); err != nil {
+		t.Fatalf("插入任务失败: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("关闭失败: %v", err)
+	}
+
+	checks := map[string]error{
+		"InsertTask":        s.InsertTask(testCtx, Task{ID: "t2", Dir: "/tmp", Status: "queued"}, nil),
+		"UpdateTaskStatus":  s.UpdateTaskStatus(testCtx, "t1", "paused", ""),
+		"UpdateTaskState":   s.UpdateTaskState(testCtx, "t1", "paused", "", 1, 0, 0),
+		"DeleteTask":        s.DeleteTask(testCtx, "t1"),
+		"UpsertFile":        s.UpsertFile(testCtx, File{TaskID: "t1", Name: "a", Path: "/tmp/a", State: "done"}),
+		"FinishFile":        s.FinishFile(testCtx, "t1", "/tmp/a.tmp", File{TaskID: "t1", Name: "a", Path: "/tmp/a", State: "done"}),
+		"MarkFileFailed":    s.MarkFileFailed(testCtx, "t1", "/tmp/a"),
+		"DropFile":          s.DropFile(testCtx, "t1", "/tmp/a"),
+		"DeleteFilesByPath": s.DeleteFilesByPath(testCtx, "t1", []string{"/tmp/a"}),
+		"AddFinished":       s.AddFinished(testCtx, "t1", "42:10"),
+		"SaveFinished":      s.SaveFinished(testCtx, "t1", map[string]struct{}{"42:10": {}}),
+		"DeleteResume":      s.DeleteResume(testCtx, "t1"),
+	}
+	for name, err := range checks {
+		if !errors.Is(err, ErrStoreClosed) {
+			t.Errorf("%s 关闭后应返回 ErrStoreClosed，实际: %v", name, err)
+		}
 	}
 }

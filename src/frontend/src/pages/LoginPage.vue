@@ -22,6 +22,10 @@
     <!-- 未登录 -->
     <div v-else class="panel-card">
       <Message v-if="auth.error" severity="error" class="mb-16">{{ auth.error }}</Message>
+      <!-- LOGIC-003：kv 中存在会话但展示态未登录（失步），提示用户如何自愈 -->
+      <Message v-if="auth.sessionPresent" severity="info" class="mb-16">
+        检测到本地已有 Telegram 会话，可能是登录状态记录失步；重新登录或重新导入 Desktop 会话即可恢复。
+      </Message>
 
       <div class="login-hero">
         <img :src="loginHero" alt="" draggable="false" />

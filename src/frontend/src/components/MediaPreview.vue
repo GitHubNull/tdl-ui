@@ -332,12 +332,18 @@ function go(delta: number) {
 }
 
 watch(
-  () => props.items.length,
-  (len) => {
+  () => [props.items.length, props.items[0]?.messageId] as const,
+  ([len, firstId], [oldLen, oldFirstId]) => {
     if (!props.visible) return
     // FE-26：外部 items 被清空（如登出重置）时自动关闭，避免空遮罩
     if (len === 0) {
       close()
+      return
+    }
+    // FUNC-002：items 收缩或首元素身份变化说明列表被整体重置（切换对话/筛选），
+    // 残留的 pendingAdvance 会在新列表上误触发前进，此处复位
+    if (len < oldLen || firstId !== oldFirstId) {
+      pendingAdvance = false
       return
     }
     if (pendingAdvance && props.index + 1 < len) {

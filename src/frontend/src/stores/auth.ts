@@ -19,6 +19,8 @@ export const useAuthStore = defineStore('auth', {
     userId: 0,
     username: '',
     name: '',
+    // LOGIC-003：kv 中存在会话但展示态未登录时，登录页提示"检测到本地会话"
+    sessionPresent: false,
     // 登录流程阶段：idle / pending / qr / need_code / need_password / error
     stage: 'idle' as string,
     qrUrl: '',
@@ -36,6 +38,7 @@ export const useAuthStore = defineStore('auth', {
         this.loggedIn = st.loggedIn
         this.userId = st.userId
         this.username = st.username
+        this.sessionPresent = st.sessionPresent
       } catch {
         /* 非 Wails 环境忽略 */
       }
@@ -56,6 +59,7 @@ export const useAuthStore = defineStore('auth', {
           this.stage = 'idle'
           this.error = ''
           this.qrUrl = ''
+          this.sessionPresent = true
           this.applyUser(u.user)
           break
         case 'error':
@@ -68,6 +72,7 @@ export const useAuthStore = defineStore('auth', {
           this.userId = 0
           this.username = ''
           this.name = ''
+          this.sessionPresent = false
           this.stage = 'idle'
           break
       }

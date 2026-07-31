@@ -242,3 +242,42 @@ func TestEnsureStartedInvokeAndStop(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// ARC-001 回归：建连阶段生命周期句柄已提前发布，StopAndWait 必须等待
+// 未就绪的连接协程退出（阻塞至超时），而非因句柄缺失立即返回。
+func TestStopAndWaitCoversConnectingPhase(t *testing.T) {
+	old := connectTimeout
+	connectTimeout = 5 * time.Second
+	defer func() { connectTimeout = old }()
+
+	release := make(chan struct{})
+	s := &ChatService{
+		runClient: func(_ context.Context, _ chan<- error, _, _, _ <-chan chatJob) {
+			<-release // 模拟慢建连：对 ctx 取消暂时无感知
+		},
+	}
+	defer close(release)
+
+	go func() { _ = s.ensureStarted() }()
+
+	// 句柄应在建连 goroutine 启动前发布，很快可见
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		published := s.dead != nil
+		s.mu.Unlock()
+		if published {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("建连阶段未发布生命周期句柄（ARC-001 回归）")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	started := time.Now()
+	s.StopAndWait(100 * time.Millisecond)
+	if elapsed := time.Since(started); elapsed < 100*time.Millisecond {
+		t.Fatalf("StopAndWait 应阻塞等待建连协程退出直至超时，实际仅 %v", elapsed)
+	}
+}

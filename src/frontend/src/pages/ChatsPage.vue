@@ -229,6 +229,7 @@ function selectDialog(d: DialogView) {
 }
 
 watch(selectedId, (id) => {
+  resetThumbClick() // FUNC-001：作废上一对话未决的单击延时与双击判定
   clearSelection()
   jumpMonth.value = null
   thumbFailed.clear()
@@ -497,6 +498,14 @@ const DBLCLICK_DELAY_MS = 250
 let thumbClickTimer: ReturnType<typeof setTimeout> | null = null
 let thumbClickMsgId = 0
 
+// FUNC-001：单双击状态的语义边界是"当前对话"，切换对话/登出/卸载都必须复位，
+// 否则旧对话的延时预览会在新对话上下文中触发，msgId 撞车还会误判双击。
+function resetThumbClick() {
+  if (thumbClickTimer) clearTimeout(thumbClickTimer)
+  thumbClickTimer = null
+  thumbClickMsgId = 0
+}
+
 function onThumbClick(it: MediaItem) {
   if (!downloadedMap.has(it.messageId)) {
     openPreview(it)
@@ -601,7 +610,7 @@ onBeforeUnmount(() => {
   saveSnapshot() // 离开页面保留当前对话浏览进度（LRU 缓存）
   sentinelObserver?.disconnect()
   offTaskFile?.()
-  if (thumbClickTimer) clearTimeout(thumbClickTimer)
+  resetThumbClick()
 })
 
 // 登出后清空选中与媒体（对话列表由 DialogListPanel 负责）
@@ -609,6 +618,7 @@ watch(
   () => auth.loggedIn,
   (v) => {
     if (!v) {
+      resetThumbClick() // FUNC-001：登出即上下文失效，未决点击一并作废
       selectedId.value = null
     }
   },

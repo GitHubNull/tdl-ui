@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-faster/errors"
 	"github.com/gotd/td/telegram/peers"
@@ -16,6 +17,7 @@ import (
 
 	"tdl-ui/internal/events"
 	"tdl-ui/internal/scriptapi"
+	"tdl-ui/internal/store"
 )
 
 // run 驱动任务执行并根据结果迁移状态。
@@ -195,7 +197,8 @@ func (m *Manager) execute(ctx context.Context, t *Task) (rerr error) {
 				return
 			}
 			if rerr != nil {
-				if saveErr := m.deps.Store.SaveFinished(context.Background(), t.ID, it.Finished()); saveErr != nil {
+				if saveErr := m.deps.Store.SaveFinished(context.Background(), t.ID, it.Finished()); saveErr != nil &&
+					!errors.Is(saveErr, store.ErrStoreClosed) { // 关闭阶段兜底写入失败不污染任务错误（ARC-002）
 					rerr = errors.Wrapf(rerr, "save resume: %v", saveErr)
 				}
 			} else {
@@ -204,10 +207,12 @@ func (m *Manager) execute(ctx context.Context, t *Task) (rerr error) {
 		}()
 
 		return downloader.New(downloader.Options{
-			Pool:     pool,
-			Threads:  settings.Threads,
-			Iter:     it,
-			Progress: newProgress(t, it, t.opts.RewriteExt),
+			Pool:    pool,
+			Threads: settings.Threads,
+			Iter:    it,
+			// 进度节流间隔可经配置调优，零值回退默认 200ms（ARC-003）
+			Progress: newProgress(t, it, t.opts.RewriteExt,
+				time.Duration(settings.ProgressIntervalMs)*time.Millisecond),
 		}).Download(ctx, settings.Limit)
 	})
 }

@@ -21,14 +21,25 @@ import (
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
 
+	"tdl-ui/internal/logging"
 	"tdl-ui/internal/scriptapi"
 )
 
-// callTimeout 单次脚本函数调用的超时时间。
-const callTimeout = 10 * time.Second
+var logScript = logging.L("script")
+
+// callTimeout 单次脚本函数调用的超时时间；var 便于测试缩短。
+var callTimeout = 10 * time.Second
 
 // errScriptTimeout 脚本执行超时哨兵错误，用于触发契约函数熔断。
 var errScriptTimeout = errors.New("脚本执行超时")
+
+// fuseContract 熔断可观测化统一出口（CODE-001）：宿主日志按 Error 级别留痕，
+// 并经 scriptapi 日志通道推送前端脚本面板；文案明确告知 yaegi 无法中断
+// 已超时的执行体（已知限制），泄漏的 goroutine 会持续占用 CPU 直到进程退出。
+func fuseContract(name string) {
+	scriptapi.Logf("[熔断] %s 执行超过 %s，已熔断禁用该脚本函数；其执行体可能仍在后台占用 CPU，建议修正脚本后重启应用", name, callTimeout)
+	logScript.Errorf("脚本函数 %s 超时熔断，执行体不可中断，可能残留 CPU 占用直到进程退出", name)
+}
 
 // Contracts 从脚本中解析出的契约函数集合，未定义的函数为 nil。
 type Contracts struct {
@@ -41,6 +52,9 @@ type Contracts struct {
 	// mu 串行化所有 Safe* 调用：yaegi 解释器不保证并发安全，
 	// Filter/Rename（迭代器 goroutine）与 OnFileDone（下载 worker）会时间重叠；
 	// 同时保护超时熔断置 nil 的写入。
+	// CODE-001 核查结论：熔断置 nil 后 Safe* 拿锁仅做 nil 判断即返回（超时的
+	// callWithGuard 已返回并释放锁，泄漏的执行体在锁外运行），后续调用为
+	// 跳过语义而非等锁，无需 TryLock（见 TestFusedFilterSkipsImmediately）。
 	mu sync.Mutex
 }
 
@@ -135,7 +149,7 @@ func (c *Contracts) SafeFilter(f scriptapi.FileInfo) (keep bool, err error) {
 	keep, err = callWithGuard(func() bool { return c.Filter(f) }, true)
 	if errors.Is(err, errScriptTimeout) {
 		c.Filter = nil
-		scriptapi.Logf("Filter 执行超时，已熔断禁用该脚本函数")
+		fuseContract("Filter")
 	}
 	return keep, err
 }
@@ -153,7 +167,7 @@ func (c *Contracts) SafeRename(f scriptapi.FileInfo) (name string, err error) {
 	name, err = callWithGuard(func() string { return c.Rename(f) }, "")
 	if errors.Is(err, errScriptTimeout) {
 		c.Rename = nil
-		scriptapi.Logf("Rename 执行超时，已熔断禁用该脚本函数")
+		fuseContract("Rename")
 	}
 	return name, err
 }
@@ -171,7 +185,7 @@ func (c *Contracts) SafeOnTaskStart(t scriptapi.TaskInfo) error {
 	_, err := callWithGuard(func() struct{} { c.OnTaskStart(t); return struct{}{} }, struct{}{})
 	if errors.Is(err, errScriptTimeout) {
 		c.OnTaskStart = nil
-		scriptapi.Logf("OnTaskStart 执行超时，已熔断禁用该脚本函数")
+		fuseContract("OnTaskStart")
 	}
 	return err
 }
@@ -189,7 +203,7 @@ func (c *Contracts) SafeOnFileDone(f scriptapi.FileInfo) error {
 	_, err := callWithGuard(func() struct{} { c.OnFileDone(f); return struct{}{} }, struct{}{})
 	if errors.Is(err, errScriptTimeout) {
 		c.OnFileDone = nil
-		scriptapi.Logf("OnFileDone 执行超时，已熔断禁用该脚本函数")
+		fuseContract("OnFileDone")
 	}
 	return err
 }
@@ -207,7 +221,7 @@ func (c *Contracts) SafeOnTaskDone(t scriptapi.TaskInfo) error {
 	_, err := callWithGuard(func() struct{} { c.OnTaskDone(t); return struct{}{} }, struct{}{})
 	if errors.Is(err, errScriptTimeout) {
 		c.OnTaskDone = nil
-		scriptapi.Logf("OnTaskDone 执行超时，已熔断禁用该脚本函数")
+		fuseContract("OnTaskDone")
 	}
 	return err
 }

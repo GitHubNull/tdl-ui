@@ -39,4 +39,4 @@ source_files:
 - **生产构建参数固定**：统一使用 `-ldflags "-s -w" -trimpath` 去除调试符号与路径信息。
 - **前端类型检查前置**：`pnpm build` 先执行 `vue-tsc --noEmit` 再进行 Vite 打包，类型错误会阻断构建。
 - **无独立 Makefile/Dockerfile/CI**：项目未提供顶层 Makefile、Dockerfile 或 GitHub Actions 工作流；构建完全依赖 Wails CLI 与 pnpm 脚本，发布流程由 ref/tdl 子模块的 `.github/workflows/release.yml` 通过 Goreleaser 管理（但这是 tdl 引擎的发布，非 tdl-ui 本身）。
-- **审计指出风险**：doc/audit/01-architecture.md 指出 replace 机制缺少 CI 校验，submodule commit 未固化，存在构建不可重现风险。
+- **审计指出风险**：doc/audit/2026-07-29-full-audit/01-architecture.md 指出 replace 机制缺少 CI 校验，submodule commit 未固化，存在构建不可重现风险。

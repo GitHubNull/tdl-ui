@@ -1,10 +1,14 @@
 package services
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync"
+	"syscall"
 )
 
 // 缓存种类（对应语义化子目录）。
@@ -19,6 +23,7 @@ type thumbCache struct {
 	rootFn func() string
 
 	mu       sync.Mutex
+	epoch    uint64                   // 清空代际号：Clear 时递增，使在途写盘自我作废（LOGIC-002）
 	inflight map[string]chan struct{} // 进程内 singleflight，防并发重复拉取
 }
 
@@ -53,14 +58,20 @@ func (c *thumbCache) Get(kind string, dialogID int64, messageID int, fetch func(
 		}
 		ch := make(chan struct{})
 		c.inflight[p] = ch
+		e := c.epoch // LOGIC-002：快照清空代际，写盘前校验
 		c.mu.Unlock()
 
 		b, err := fetch()
-		if err == nil && len(b) > 0 {
-			err = writeFileAtomic(p, b)
-		}
 
 		c.mu.Lock()
+		if err == nil && len(b) > 0 {
+			if c.epoch == e {
+				// 写盘留在锁内：与 Clear 互斥，杜绝清空后幽灵文件与
+				// Windows 下 RemoveAll 撞上 rename 的 Access is denied（LOGIC-002）。
+				err = writeFileAtomic(p, b)
+			}
+			// 代际已变：本次拉取先于 Clear 发起，跳过落盘仅内存返回
+		}
 		delete(c.inflight, p)
 		c.mu.Unlock()
 		close(ch)
@@ -73,10 +84,12 @@ func (c *thumbCache) Get(kind string, dialogID int64, messageID int, fetch func(
 }
 
 // Clear 在锁保护下清空 thumbs/previews 两个子目录后重建（不递归删根目录）。
-// 持锁可阻止新拉取在清理期间启动，降低与 in-flight 写入的竞争窗口（SVC-18）。
+// 持锁可阻止新拉取在清理期间启动；同时递增 epoch 使在途拉取的写盘自我作废，
+// 写盘也持锁校验代际，二者互斥（SVC-18 + LOGIC-002）。
 func (c *thumbCache) Clear() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.epoch++ // 作废所有清空前发起的在途写盘
 	root := c.rootFn()
 	for _, kind := range []string{cacheKindThumb, cacheKindPreview} {
 		sub := filepath.Join(root, kind)
@@ -100,13 +113,33 @@ func writeFileAtomic(path string, b []byte) error {
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		// SVC-20：Windows 上 rename 到已存在目标会失败；
-		// 目标已存在说明他方已写入同 key 内容，视为成功
-		if _, serr := os.Stat(path); serr == nil {
+		// SVC-20 + CODE-003：Windows 上 rename 到已存在/被占用目标会失败。
+		// 判据按失败原因收窄——仅"目标已存在/共享冲突"类错误视为并发写入者
+		// 已完成同 key 内容（等价成功）；权限/磁盘等其他错误原样返回，
+		// 避免 dst 恰为历史旧文件时误报成功。
+		if isConcurrentWriteErr(err) {
 			_ = os.Remove(tmp)
 			return nil
 		}
+		_ = os.Remove(tmp)
 		return err
 	}
 	return nil
+}
+
+// isConcurrentWriteErr 判定 rename 失败是否属于"并发写入者已占据目标"类错误：
+// fs.ErrExist（EEXIST）或 Windows 的共享冲突/拒绝访问（文件被同 key 写入方占用）。
+func isConcurrentWriteErr(err error) bool {
+	if errors.Is(err, fs.ErrExist) {
+		return true
+	}
+	if runtime.GOOS == "windows" {
+		// ERROR_SHARING_VIOLATION(32) / ERROR_ACCESS_DENIED(5)：
+		// 并发 rename 到同名目标或目标被读取方短暂占用的典型错误码
+		var errno syscall.Errno
+		if errors.As(err, &errno) {
+			return errno == 32 || errno == 5
+		}
+	}
+	return false
 }

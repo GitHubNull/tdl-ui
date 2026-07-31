@@ -73,11 +73,11 @@ type MediaItem struct {
 	Caption   string `json:"caption"`
 	Size      int64  `json:"size"`
 	MIME      string `json:"mime"`
-	Kind      string `json:"kind"` // video/photo/audio/file
-	Date      int64  `json:"date"` // unix 秒
+	Kind      string `json:"kind"`             // video/photo/audio/file
+	Date      int64  `json:"date"`             // unix 秒
 	Width     int    `json:"width,omitempty"`  // 像素宽（短缺时为 0）
 	Height    int    `json:"height,omitempty"` // 像素高（短缺时为 0）
-	Thumb     string `json:"thumb,omitempty"` // 内嵌模糊占位图（data URI，可空）
+	Thumb     string `json:"thumb,omitempty"`  // 内嵌模糊占位图（data URI，可空）
 }
 
 // MediaPage 一页媒体查询结果。
@@ -97,6 +97,12 @@ const (
 
 // connectTimeout 建连与授权校验的等待上限；var 便于测试缩短。
 var connectTimeout = 30 * time.Second
+
+// 缩略图/视频分段队列的内置默认 worker 数；配置零值时回退（ARC-003）。
+const (
+	defaultThumbWorkers = 2
+	defaultVideoWorkers = 2
+)
 
 // chatJob 投递给常驻客户端执行循环的查询任务。
 type chatJob struct {
@@ -366,18 +372,28 @@ func (s *ChatService) start() error {
 		run = s.runTelegramClient
 	}
 
+	// ARC-001：生命周期句柄在 goroutine 启动前发布，使 StopAndWait/Stop 覆盖
+	// 建连阶段（此前仅在建连成功后发布，退出编排对建连中的连接不可见）。
+	s.mu.Lock()
+	s.cancel = cancel
+	s.dead = dead
+	s.mu.Unlock()
+
 	go func() {
+		defer func() {
+			// 先宣告退出再抢锁复位，确保任何等待 dead 的一方不会与本协程互锁；
+			// 代际比较仅清理本次连接发布的状态，不碰后继连接的句柄。
+			close(dead)
+			s.mu.Lock()
+			if s.dead == dead {
+				s.running = false
+				s.cancel = nil
+				s.dead = nil
+			}
+			s.mu.Unlock()
+		}()
 		defer cancel()
 		run(runCtx, ready, jobs, thumbJobs, videoJobs)
-
-		// 先宣告退出再抢锁复位，确保任何等待 dead 的一方不会与本协程互锁
-		close(dead)
-		s.mu.Lock()
-		if s.dead == dead { // 仅清理本次连接发布的状态
-			s.running = false
-			s.cancel = nil
-		}
-		s.mu.Unlock()
 	}()
 
 	select {
@@ -422,8 +438,8 @@ func (s *ChatService) start() error {
 }
 
 // runTelegramClient 真实客户端：建连 → 校验登录态 → 执行查询任务直到 ctx 取消。
-// 列表查询单 worker 串行；缩略图队列 2 个 worker，单张大图预览最多占用一个；
-// 视频队列 2 个 worker，单次仅拉取一个 1MB 分段，暂停播放不会长期占用 worker。
+// 列表查询单 worker 串行；缩略图/视频队列 worker 数默认各 2，可经配置 tuning 段调优（ARC-003）；
+// 单张大图预览最多占用一个缩略图 worker，视频单次仅拉取一个 1MB 分段，暂停播放不会长期占用 worker。
 // 就绪前的任何错误都会写入 ready，保证调用方能拿到具体原因。
 func (s *ChatService) runTelegramClient(ctx context.Context, ready chan<- error, jobs, thumbJobs, videoJobs <-chan chatJob) {
 	kvd, err := s.kv.Open(engine.Namespace)
@@ -472,12 +488,27 @@ func (s *ChatService) runTelegramClient(ctx context.Context, ready chan<- error,
 			}
 		}
 
+		// ARC-003：worker 数可经配置文件调优（tuning.thumbWorkers / tuning.videoWorkers），
+		// 零值回退内置默认，启动时读取一次，不支持热更新。
+		tuning := s.cfg.Get()
+		thumbN := tuning.ThumbWorkers
+		if thumbN <= 0 {
+			thumbN = defaultThumbWorkers
+		}
+		videoN := tuning.VideoWorkers
+		if videoN <= 0 {
+			videoN = defaultVideoWorkers
+		}
+		logChat.Debugf("worker 并发度: thumb=%d video=%d", thumbN, videoN)
+
 		var wg sync.WaitGroup
-		wg.Add(4)
-		go func() { defer wg.Done(); worker(thumbJobs) }()
-		go func() { defer wg.Done(); worker(thumbJobs) }()
-		go func() { defer wg.Done(); worker(videoJobs) }()
-		go func() { defer wg.Done(); worker(videoJobs) }()
+		wg.Add(thumbN + videoN)
+		for i := 0; i < thumbN; i++ {
+			go func() { defer wg.Done(); worker(thumbJobs) }()
+		}
+		for i := 0; i < videoN; i++ {
+			go func() { defer wg.Done(); worker(videoJobs) }()
+		}
 		worker(jobs)
 		wg.Wait() // 确保所有 worker 退出后再关闭客户端
 		return nil

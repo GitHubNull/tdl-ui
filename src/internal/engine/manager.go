@@ -19,13 +19,39 @@ import (
 	"tdl-ui/internal/store"
 )
 
+// TaskRepo 任务/消息项/文件/断点的持久化窄接口，按 engine 实际调用集合裁剪（ARC-004）。
+// *store.Store 天然满足；单测可注入内存 fake，无需真实 SQLite 文件。
+type TaskRepo interface {
+	// 任务
+	InsertTask(ctx context.Context, t store.Task, items []store.Item) error
+	UpdateTaskStatus(ctx context.Context, id, status, errMsg string) error
+	UpdateTaskState(ctx context.Context, id, status, errMsg string, total, finished, failed int) error
+	DeleteTask(ctx context.Context, id string) error
+	LoadAllTasks(ctx context.Context) ([]store.Task, error)
+	ListItems(ctx context.Context, taskID string) ([]store.Item, error)
+	// 文件
+	UpsertFile(ctx context.Context, f store.File) error
+	FinishFile(ctx context.Context, taskID, oldPath string, f store.File) error
+	MarkFileFailed(ctx context.Context, taskID, path string) error
+	DropFile(ctx context.Context, taskID, path string) error
+	ListFiles(ctx context.Context, taskID string) ([]store.File, error)
+	DeleteFilesByPath(ctx context.Context, taskID string, paths []string) error
+	ListDoneFilesByDialog(ctx context.Context, dialogID int64) ([]store.File, error)
+	GetDoneFile(ctx context.Context, dialogID int64, messageID int) (store.File, bool, error)
+	// 断点
+	LoadFinished(ctx context.Context, taskID string) (map[string]struct{}, error)
+	AddFinished(ctx context.Context, taskID, key string) error
+	SaveFinished(ctx context.Context, taskID string, finished map[string]struct{}) error
+	DeleteResume(ctx context.Context, taskID string) error
+}
+
 // Deps 任务管理器依赖。
 type Deps struct {
 	Cfg     *config.Manager
 	KV      kv.Storage
 	Emitter *events.Emitter
 	Scripts *script.Store
-	Store   *store.Store // 任务/消息项/文件/断点的 SQLite 持久化（单测可为 nil）
+	Store   TaskRepo // 任务/消息项/文件/断点持久化（单测可为 nil 或内存 fake，ARC-004）
 }
 
 // Manager 任务管理器：维护任务列表并驱动执行。

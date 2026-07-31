@@ -28,6 +28,17 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   build: {
-    chunkSizeWarningLimit: 1024,
+    // CODE-004：PrimeVue 系依赖拆为 vendor chunk，路由页面懒加载后各 chunk 应低于默认 500kB 阈值
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // 主题引擎全局共享，固定为独立 vendor chunk；
+          // primevue 组件为按需导入，交由路由懒加载边界自然分割
+          if (id.includes('node_modules/@primeuix')) {
+            return 'primeuix'
+          }
+        },
+      },
+    },
   },
 })

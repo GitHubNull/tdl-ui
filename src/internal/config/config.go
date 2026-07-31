@@ -38,6 +38,12 @@ type Settings struct {
 	LoggedInUserID int64 `json:"loggedInUserId"`
 	// LoggedInUsername 最近一次登录成功的用户名（仅用于界面展示）
 	LoggedInUsername string `json:"loggedInUsername"`
+	// ThumbWorkers 缩略图队列 worker 数，0 回退内置默认值 2（ARC-003，仅配置文件手改）
+	ThumbWorkers int `json:"thumbWorkers"`
+	// VideoWorkers 视频分段队列 worker 数，0 回退内置默认值 2（ARC-003，仅配置文件手改）
+	VideoWorkers int `json:"videoWorkers"`
+	// ProgressIntervalMs 单文件下载进度事件最小推送间隔（毫秒），0 回退内置默认值 200（ARC-003）
+	ProgressIntervalMs int `json:"progressIntervalMs"`
 	// Log 日志配置（输出目标、级别、目录、格式与滚动策略）
 	Log logging.LogSettings `json:"log"`
 }
@@ -58,6 +64,12 @@ type yamlConfig struct {
 		CacheDir string `yaml:"cacheDir"`
 		TempDir  string `yaml:"tempDir"`
 	} `yaml:"storage"`
+	// Tuning 性能调优参数（无 UI 入口，零值回退内置默认，ARC-003）
+	Tuning struct {
+		ThumbWorkers       int `yaml:"thumbWorkers"`
+		VideoWorkers       int `yaml:"videoWorkers"`
+		ProgressIntervalMs int `yaml:"progressIntervalMs"`
+	} `yaml:"tuning"`
 	Log     logging.LogSettings `yaml:"log"`
 	Session struct {
 		Proxy            string `yaml:"proxy"`
@@ -76,6 +88,9 @@ func settingsToYAML(s Settings) yamlConfig {
 	y.Download.PoolSize = s.PoolSize
 	y.Storage.CacheDir = s.CacheDir
 	y.Storage.TempDir = s.TempDir
+	y.Tuning.ThumbWorkers = s.ThumbWorkers
+	y.Tuning.VideoWorkers = s.VideoWorkers
+	y.Tuning.ProgressIntervalMs = s.ProgressIntervalMs
 	y.Log = s.Log
 	y.Session.Proxy = s.Proxy
 	y.Session.LoggedInUserID = s.LoggedInUserID
@@ -85,18 +100,21 @@ func settingsToYAML(s Settings) yamlConfig {
 
 func yamlToSettings(y yamlConfig) Settings {
 	return Settings{
-		Proxy:            y.Session.Proxy,
-		DownloadDir:      y.Download.Dir,
-		Template:         y.Download.Template,
-		Threads:          y.Download.Threads,
-		Limit:            y.Download.Limit,
-		PoolSize:         y.Download.PoolSize,
-		Theme:            y.App.Theme,
-		CacheDir:         y.Storage.CacheDir,
-		TempDir:          y.Storage.TempDir,
-		LoggedInUserID:   y.Session.LoggedInUserID,
-		LoggedInUsername: y.Session.LoggedInUsername,
-		Log:              y.Log,
+		Proxy:              y.Session.Proxy,
+		DownloadDir:        y.Download.Dir,
+		Template:           y.Download.Template,
+		Threads:            y.Download.Threads,
+		Limit:              y.Download.Limit,
+		PoolSize:           y.Download.PoolSize,
+		Theme:              y.App.Theme,
+		CacheDir:           y.Storage.CacheDir,
+		TempDir:            y.Storage.TempDir,
+		LoggedInUserID:     y.Session.LoggedInUserID,
+		LoggedInUsername:   y.Session.LoggedInUsername,
+		ThumbWorkers:       y.Tuning.ThumbWorkers,
+		VideoWorkers:       y.Tuning.VideoWorkers,
+		ProgressIntervalMs: y.Tuning.ProgressIntervalMs,
+		Log:                y.Log,
 	}
 }
 
@@ -118,8 +136,11 @@ func NewManager() (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	dataDir := filepath.Join(base, "tdl-ui")
+	return NewManagerAt(filepath.Join(base, "tdl-ui"))
+}
 
+// NewManagerAt 在指定数据目录初始化配置（测试与自定义部署入口）。
+func NewManagerAt(dataDir string) (*Manager, error) {
 	for _, dir := range []string{
 		dataDir,
 		filepath.Join(dataDir, "kv"),

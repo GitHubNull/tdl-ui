@@ -31,8 +31,9 @@ type FileEvent struct {
 	Path string `json:"path,omitempty"`
 }
 
-// progressEmitInterval 单文件进度事件的最小推送间隔，避免高频刷屏。
-const progressEmitInterval = 200 * time.Millisecond
+// defaultProgressEmitInterval 单文件进度事件的最小推送间隔默认值，避免高频刷屏；
+// 可经配置 tuning.progressIntervalMs 调优，零值回退此默认（ARC-003）。
+const defaultProgressEmitInterval = 200 * time.Millisecond
 
 // progress 实现 core/downloader 的 Progress 接口
 // （对应 ref/tdl/app/dl/progress.go，进度条替换为事件回调）。
@@ -40,18 +41,23 @@ type progress struct {
 	task *Task
 	it   *iter
 
-	rewriteExt bool
+	rewriteExt   bool
+	emitInterval time.Duration
 
 	mu       sync.Mutex
 	lastEmit map[int]time.Time
 }
 
-func newProgress(task *Task, it *iter, rewriteExt bool) *progress {
+func newProgress(task *Task, it *iter, rewriteExt bool, emitInterval time.Duration) *progress {
+	if emitInterval <= 0 {
+		emitInterval = defaultProgressEmitInterval
+	}
 	return &progress{
-		task:       task,
-		it:         it,
-		rewriteExt: rewriteExt,
-		lastEmit:   make(map[int]time.Time),
+		task:         task,
+		it:           it,
+		rewriteExt:   rewriteExt,
+		emitInterval: emitInterval,
+		lastEmit:     make(map[int]time.Time),
 	}
 }
 
@@ -71,11 +77,11 @@ func (p *progress) OnAdd(elem downloader.Elem) {
 func (p *progress) OnDownload(elem downloader.Elem, state downloader.ProgressState) {
 	e := elem.(*iterElem)
 
-	// 节流：同一文件 200ms 内只推送一次
+	// 节流：同一文件 emitInterval 内只推送一次
 	p.mu.Lock()
 	last := p.lastEmit[e.id]
 	now := time.Now()
-	if now.Sub(last) < progressEmitInterval {
+	if now.Sub(last) < p.emitInterval {
 		p.mu.Unlock()
 		return
 	}

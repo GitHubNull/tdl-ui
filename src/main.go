@@ -123,6 +123,8 @@ func main() {
 	authSvc.OnSessionChanged = chatSvc.Stop
 	// 活跃下载与登录流程会互踩同一份会话，重登/登出前拒绝
 	authSvc.HasActiveDownloads = taskManager.HasActive
+	// 启动对账：以 kv 会话为权威源校准展示用登录态（LOGIC-003）
+	authSvc.ReconcileOnStartup()
 
 	err = wails.Run(&options.App{
 		Title:     "tdl UI",

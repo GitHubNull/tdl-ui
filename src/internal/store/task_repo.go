@@ -12,6 +12,9 @@ func nowStr() string { return time.Now().Format("2006-01-02 15:04:05") }
 
 // InsertTask 在事务中插入任务主表 + 消息项。
 func (s *Store) InsertTask(ctx context.Context, t Task, items []Item) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -66,6 +69,9 @@ func nullString(s string) any {
 
 // UpdateTaskStatus 更新任务状态与错误信息。
 func (s *Store) UpdateTaskStatus(ctx context.Context, id, status, errMsg string) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `UPDATE tasks SET status=?, error=?, updated_at=? WHERE id=?`,
 		status, errMsg, nowStr(), id)
 	return err
@@ -74,6 +80,9 @@ func (s *Store) UpdateTaskStatus(ctx context.Context, id, status, errMsg string)
 // UpdateTaskState 单条 UPDATE 同步状态与计数（ENG-10：避免两条独立 UPDATE
 // 在多 worker 并发下乱序写入时状态与计数撕裂）。
 func (s *Store) UpdateTaskState(ctx context.Context, id, status, errMsg string, total, finished, failed int) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `UPDATE tasks SET status=?, error=?, total=?, finished=?, failed=?, updated_at=? WHERE id=?`,
 		status, errMsg, total, finished, failed, nowStr(), id)
 	return err
@@ -81,6 +90,9 @@ func (s *Store) UpdateTaskState(ctx context.Context, id, status, errMsg string, 
 
 // DeleteTask 删除任务（外键级联清理 items/files/resume_keys）。
 func (s *Store) DeleteTask(ctx context.Context, id string) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `DELETE FROM tasks WHERE id=?`, id)
 	return err
 }

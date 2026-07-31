@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/go-faster/errors"
 	_ "modernc.org/sqlite" // 注册 "sqlite" 驱动
@@ -16,12 +17,19 @@ import (
 
 var logStore = logging.L("store")
 
+// ErrStoreClosed 存储已进入关闭阶段：关闭编排开始后，逃逸 goroutine 的写入统一
+// 返回本错误而非落在已关闭的 *sql.DB 上（ARC-002：调用方据此降级日志，消除
+// "sql: database is closed" 刷屏）。
+var ErrStoreClosed = errors.New("存储已关闭")
+
 // schemaVersion 当前数据库结构版本，配合 PRAGMA user_version 做手写迁移。
 const schemaVersion = 4
 
 // Store 封装单个 SQLite 连接（单进程单连接池，配合 WAL + busy_timeout 规避 Windows 锁竞争）。
 type Store struct {
 	db *sql.DB
+	// closed 关闭屏障：Close 先置位再关连接，写方法入口检查（ARC-002）。
+	closed atomic.Bool
 }
 
 // Task 任务主表行（对应 tasks 表）。
@@ -101,12 +109,21 @@ func Open(dbPath string) (*Store, error) {
 	return s, nil
 }
 
-// Close 关闭数据库连接。
+// Close 关闭数据库连接：先置关闭标志，让在途写入拿到 ErrStoreClosed 而非驱动错误。
 func (s *Store) Close() error {
 	if s == nil || s.db == nil {
 		return nil
 	}
+	s.closed.Store(true)
 	return s.db.Close()
+}
+
+// checkOpen 写方法统一入口检查（ARC-002）。
+func (s *Store) checkOpen() error {
+	if s.closed.Load() {
+		return ErrStoreClosed
+	}
+	return nil
 }
 
 // migrate 依据 user_version 递增建表。

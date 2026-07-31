@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.13.1] - 2026-07-31 22:54:03
+
+### Fixed
+- **第二轮全库审计 13 项修复**（`doc/audit/20260731-2021-second-round-audit/`，Medium 6 / Low 7 全部闭环）：
+  - ARC-001：ChatService 生命周期句柄（cancel/dead）在建连 goroutine 启动前发布，StopAndWait 覆盖"建连中"盲区。
+  - ARC-002：store 增加 closed 标志与 `ErrStoreClosed`，engine 超时逃逸 goroutine 写入已关闭存储时降级为日志告警，不再 panic。
+  - LOGIC-001：auth 登录流程增加 `flowDone` join——Logout/重新登录先 `cancelLoginAndWait(3s)` 等待旧流程 goroutine 真正退出，杜绝幽灵会话回写。
+  - LOGIC-002：thumbCache 引入 epoch 代际，Clear 时代际自增，锁外 fetch 完成后入锁校验代际再落盘，消除清空后幽灵文件与 Windows 下 Clear 失败。
+  - CODE-001：脚本超时熔断统一出口 `fuseContract`（Error 级宿主日志 + 前端脚本日志推送）；yaegi 执行体不可中断为已知限制，已固化至脚本调试教程。
+  - FUNC-001：ChatsPage 单/双击延时定时器抽取 `resetThumbClick()`，切换对话/登出/卸载三处复位，不再误开旧对话预览。
+  - LOGIC-003：登录态双源对账——启动时 kv 会话为权威源校准 config 展示态（`ReconcileOnStartup`）；`LoginStatus` 新增 `sessionPresent`，登录页对失步状态给出自愈提示。
+  - CODE-003：`writeFileAtomic` rename 失败判据从"目标已存在"收窄为错误类型（`fs.ErrExist` / Windows 共享冲突 32 / 拒绝访问 5）。
+  - CODE-002：LogsPage 搜索防抖定时器补 `onBeforeUnmount` 清理。
+  - FUNC-002：MediaPreview `pendingAdvance` 在 items 收缩或首元素身份变化（列表整体重置）时复位，保留末项续拉自动前进主路径。
+
+### Changed
+- ARC-003：缩略图/视频队列 worker 数与下载进度事件节流间隔配置化（config.yaml `tuning` 段：`thumbWorkers`/`videoWorkers`/`progressIntervalMs`，零值回退内置默认 2/2/200ms，无 UI 入口）。
+- ARC-004：engine 对持久化依赖接口化——新增 `TaskRepo` 窄接口（18 方法），`Deps.Store` 由 `*store.Store` 改为接口类型，装配零改动；新增内存 fake 单测证明可测试性。
+- CODE-004：前端路由页面懒加载（LoginPage 保留静态导入保首屏）+ `@primeuix` 主题引擎拆独立 vendor chunk，构建产物由单 chunk 1.1MB 降为多 chunk（最大 332kB），500kB 警告消除。
+
 ## [0.13.0] - 2026-07-31 00:36:44
 
 ### Added
