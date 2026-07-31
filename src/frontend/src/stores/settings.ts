@@ -17,6 +17,10 @@ const defaults = (): Settings =>
     tempDir: '',
     loggedInUserId: 0,
     loggedInUsername: '',
+    ui: {
+      logFontSize: 14,
+      scrollbarSize: 10,
+    },
     log: {
       targets: 'both',
       level: 'info',
@@ -45,6 +49,7 @@ export const useSettingsStore = defineStore('settings', {
         this.settings = config.Settings.createFrom({
           ...defaults(),
           ...remote,
+          ui: { ...defaults().ui, ...(remote.ui ?? {}) },
           log: { ...defaults().log, ...(remote.log ?? {}) },
         })
         this.dataDir = await SettingsApi.dataDir()

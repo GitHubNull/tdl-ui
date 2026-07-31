@@ -67,6 +67,18 @@
           @update:model-value="onTheme"
         />
       </div>
+      <div class="num-row">
+        <div class="form-field">
+          <label for="log-font-size">日志字体大小</label>
+          <InputNumber id="log-font-size" v-model="store.settings.ui.logFontSize" :min="10" :max="28" show-buttons fluid />
+          <span class="hint">日志页字号（px），Ctrl + 滚轮亦可调整</span>
+        </div>
+        <div class="form-field">
+          <label for="scrollbar-size">滚动条尺寸</label>
+          <InputNumber id="scrollbar-size" v-model="store.settings.ui.scrollbarSize" :min="6" :max="24" show-buttons fluid />
+          <span class="hint">日志页滚动条宽度（px）</span>
+        </div>
+      </div>
 
       <h2 class="section-title">存储</h2>
       <div class="form-field">
