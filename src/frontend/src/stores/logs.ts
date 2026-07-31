@@ -1,9 +1,7 @@
 import { defineStore } from 'pinia'
 import { EVENT_LOG, LogApi, on } from '../api'
 import type { LogEntry } from '../types'
-
-/** 实时日志缓冲上限，与后端环形缓冲一致。 */
-const MAX_ENTRIES = 5000
+import { useSettingsStore } from './settings'
 
 // FE-17：保存事件取消函数，HMR 重建模块时注销旧回调，避免事件双触发
 const unsubs: Array<() => void> = []
@@ -18,6 +16,18 @@ export const useLogsStore = defineStore('logs', {
     inited: false,
   }),
   actions: {
+    /** 当前最大保留行数，从设置读取，默认 128。 */
+    maxEntries(): number {
+      const settings = useSettingsStore()
+      return settings.settings.ui?.maxLogLines || 128
+    },
+    /** 裁剪 entries 到当前上限。 */
+    trim() {
+      const max = this.maxEntries()
+      if (this.entries.length > max) {
+        this.entries.splice(0, this.entries.length - max)
+      }
+    },
     async init() {
       if (this.inited) return
       this.inited = true
@@ -26,9 +36,7 @@ export const useLogsStore = defineStore('logs', {
         on<LogEntry[]>(EVENT_LOG, (batch) => {
           if (!batch?.length) return
           this.entries.push(...batch)
-          if (this.entries.length > MAX_ENTRIES) {
-            this.entries.splice(0, this.entries.length - MAX_ENTRIES)
-          }
+          this.trim()
         }),
       )
       try {
@@ -37,6 +45,7 @@ export const useLogsStore = defineStore('logs', {
         const seen = new Set(this.entries.map((e) => e.seq))
         const merged = recent.filter((e) => !seen.has(e.seq))
         this.entries.unshift(...merged)
+        this.trim()
       } catch {
         /* 非 Wails 环境忽略 */
       }

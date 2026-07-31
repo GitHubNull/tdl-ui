@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.16.0] - 2026-08-01 04:22:26
+
+### Added
+- **日志行数上限可配置**：新增 `maxLogLines` 配置项（`config.yaml` → `ui.maxLogLines`），将日志环形缓冲区容量从硬编码 5000 行改为用户可配置（16–1024，默认 128），设置页「界面」段 `InputNumber` 控制，即时生效。
+- **日志行复制按钮**：每条日志行号沟槽内新增复制图标按钮，点击一键复制该行原始文本到剪贴板。
+
+### Changed
+- `config.Manager` 修复 `applyYAML` / `applyLegacyJSON` 中遗漏的 `UISettings.withDefaults()` 调用，确保 YAML/JSON 导入配置时 UI 字段也有零值回默认与钳制。
+
 ## [0.15.0] - 2026-08-01 12:38:00
 
 ### Added

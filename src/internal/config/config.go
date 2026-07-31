@@ -14,10 +14,11 @@ import (
 	"tdl-ui/internal/logging"
 )
 
-// UISettings 界面偏好（日志页字号与滚动条尺寸）
+// UISettings 界面偏好（日志页字号、滚动条尺寸与最大滚动行数）
 type UISettings struct {
 	LogFontSize   int `json:"logFontSize" yaml:"logFontSize"`     // 默认 14，钳制 10..28
 	ScrollbarSize int `json:"scrollbarSize" yaml:"scrollbarSize"` // 默认 10，钳制 6..24
+	MaxLogLines   int `json:"maxLogLines" yaml:"maxLogLines"`     // 默认 128，钳制 16..1024
 }
 
 func (u UISettings) withDefaults() UISettings {
@@ -38,6 +39,15 @@ func (u UISettings) withDefaults() UISettings {
 	}
 	if u.ScrollbarSize > 24 {
 		u.ScrollbarSize = 24
+	}
+	if u.MaxLogLines <= 0 {
+		u.MaxLogLines = 128
+	}
+	if u.MaxLogLines < 16 {
+		u.MaxLogLines = 16
+	}
+	if u.MaxLogLines > 1024 {
+		u.MaxLogLines = 1024
 	}
 	return u
 }
@@ -109,6 +119,7 @@ type yamlConfig struct {
 	UI struct {
 		LogFontSize   int `yaml:"logFontSize"`
 		ScrollbarSize int `yaml:"scrollbarSize"`
+		MaxLogLines   int `yaml:"maxLogLines"`
 	} `yaml:"ui"`
 	Scripts struct {
 		Enabled         []string `yaml:"enabled"`
@@ -138,6 +149,7 @@ func settingsToYAML(s Settings) yamlConfig {
 	y.Tuning.ProgressIntervalMs = s.ProgressIntervalMs
 	y.UI.LogFontSize = s.UI.LogFontSize
 	y.UI.ScrollbarSize = s.UI.ScrollbarSize
+	y.UI.MaxLogLines = s.UI.MaxLogLines
 	y.Scripts.Enabled = s.EnabledScripts
 	y.Scripts.TemplatesSeeded = s.TemplatesSeeded
 	y.Log = s.Log
@@ -167,6 +179,7 @@ func yamlToSettings(y yamlConfig) Settings {
 		UI: UISettings{
 			LogFontSize:   y.UI.LogFontSize,
 			ScrollbarSize: y.UI.ScrollbarSize,
+			MaxLogLines:   y.UI.MaxLogLines,
 		},
 		EnabledScripts:  y.Scripts.Enabled,
 		TemplatesSeeded: y.Scripts.TemplatesSeeded,
@@ -232,7 +245,7 @@ func defaultSettings(dataDir string) Settings {
 		Limit:       2,
 		PoolSize:    8,
 		Theme:       "system",
-		UI:          UISettings{LogFontSize: 14, ScrollbarSize: 10},
+		UI:          UISettings{LogFontSize: 14, ScrollbarSize: 10, MaxLogLines: 128},
 		Log:         logging.DefaultSettings(),
 	}
 }
@@ -421,6 +434,7 @@ func (m *Manager) applyYAML(b []byte) error {
 	defer m.mu.Unlock()
 	m.settings = yamlToSettings(y)
 	m.settings.Log = m.settings.Log.WithDefaults()
+	m.settings.UI = m.settings.UI.withDefaults()
 	return nil
 }
 
@@ -431,6 +445,7 @@ func (m *Manager) applyLegacyJSON(b []byte) error {
 		return err
 	}
 	m.settings.Log = m.settings.Log.WithDefaults()
+	m.settings.UI = m.settings.UI.withDefaults()
 	return nil
 }
 

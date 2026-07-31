@@ -78,6 +78,11 @@
           <InputNumber id="scrollbar-size" v-model="store.settings.ui.scrollbarSize" :min="6" :max="24" show-buttons fluid />
           <span class="hint">日志页滚动条宽度（px）</span>
         </div>
+        <div class="form-field">
+          <label for="max-log-lines">最大滚动行数</label>
+          <InputNumber id="max-log-lines" v-model="store.settings.ui.maxLogLines" :min="16" :max="1024" show-buttons fluid />
+          <span class="hint">日志页保留的最大行数，超出后最老的数据被清除</span>
+        </div>
       </div>
 
       <h2 class="section-title">存储</h2>

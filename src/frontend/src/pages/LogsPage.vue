@@ -97,7 +97,17 @@
         >
           <template #item="{ item }">
             <div class="log-row" :style="rowStyle">
-              <span class="log-gutter" :style="{ minWidth: gutterWidth }">{{ item.num }}</span>
+              <span class="log-gutter" :style="{ minWidth: gutterWidth }">
+                <span class="log-gutter-num">{{ item.num }}</span>
+                <button
+                  class="log-copy-btn"
+                  type="button"
+                  title="复制此行"
+                  @click.stop="copyLine(item.raw)"
+                >
+                  <i class="pi pi-copy" />
+                </button>
+              </span>
               <span class="log-line" v-html="item.html" />
             </div>
           </template>
@@ -159,7 +169,7 @@ let fontSaveTimer: ReturnType<typeof setTimeout> | undefined
 
 function adjustFont(delta: number) {
   const next = Math.max(10, Math.min(28, fontSize.value + delta))
-  if (!settings.settings.ui) settings.settings.ui = { logFontSize: 14, scrollbarSize: 10 }
+  if (!settings.settings.ui) settings.settings.ui = { logFontSize: 14, scrollbarSize: 10, maxLogLines: 128 }
   settings.settings.ui.logFontSize = next
   // 防抖持久化
   clearTimeout(fontSaveTimer)
@@ -169,7 +179,7 @@ function adjustFont(delta: number) {
 }
 
 function resetFont() {
-  if (!settings.settings.ui) settings.settings.ui = { logFontSize: 14, scrollbarSize: 10 }
+  if (!settings.settings.ui) settings.settings.ui = { logFontSize: 14, scrollbarSize: 10, maxLogLines: 128 }
   settings.settings.ui.logFontSize = 14
   clearTimeout(fontSaveTimer)
   fontSaveTimer = setTimeout(() => {
@@ -433,6 +443,16 @@ async function openDir() {
     toast.add({ severity: 'error', summary: '打开日志目录失败', detail: String(e), life: 4000 })
   }
 }
+
+/** 复制单行日志到剪贴板。 */
+async function copyLine(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.add({ severity: 'success', summary: '已复制', life: 1500 })
+  } catch {
+    toast.add({ severity: 'error', summary: '复制失败', life: 3000 })
+  }
+}
 </script>
 
 <style scoped>
@@ -477,8 +497,71 @@ async function openDir() {
   max-width: 340px;
 }
 
+/* 级别过滤按钮配色变量 */
+.level-filter {
+  --lv-debug-color: var(--p-green-400);
+  --lv-info-color: var(--p-blue-400);
+  --lv-warn-color: var(--p-orange-400);
+  --lv-error-color: var(--p-red-400);
+}
+
 .level-filter :deep(.p-togglebutton) {
   padding-inline: 10px;
+  position: relative;
+}
+
+/* 未选中状态：左侧彩色竖条标识级别 */
+.level-filter :deep(.p-togglebutton)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  border-radius: 0 2px 2px 0;
+  opacity: 0.6;
+}
+
+.level-filter :deep(.p-togglebutton:nth-child(1))::before {
+  background: var(--lv-debug-color);
+}
+
+.level-filter :deep(.p-togglebutton:nth-child(2))::before {
+  background: var(--lv-info-color);
+}
+
+.level-filter :deep(.p-togglebutton:nth-child(3))::before {
+  background: var(--lv-warn-color);
+}
+
+.level-filter :deep(.p-togglebutton:nth-child(4))::before {
+  background: var(--lv-error-color);
+}
+
+/* 选中状态：彩色背景 + 彩色文字 */
+.level-filter :deep(.p-togglebutton[data-p-checked="true"]) {
+  font-weight: 600;
+}
+
+.level-filter :deep(.p-togglebutton:nth-child(1)[data-p-checked="true"]) {
+  background: color-mix(in srgb, var(--lv-debug-color) 15%, transparent);
+  color: var(--lv-debug-color);
+}
+
+.level-filter :deep(.p-togglebutton:nth-child(2)[data-p-checked="true"]) {
+  background: color-mix(in srgb, var(--lv-info-color) 15%, transparent);
+  color: var(--lv-info-color);
+}
+
+.level-filter :deep(.p-togglebutton:nth-child(3)[data-p-checked="true"]) {
+  background: color-mix(in srgb, var(--lv-warn-color) 15%, transparent);
+  color: var(--lv-warn-color);
+}
+
+.level-filter :deep(.p-togglebutton:nth-child(4)[data-p-checked="true"]) {
+  background: color-mix(in srgb, var(--lv-error-color) 15%, transparent);
+  color: var(--lv-error-color);
 }
 
 .regex-error {
@@ -546,11 +629,54 @@ async function openDir() {
 /* 行号沟槽 */
 .log-gutter {
   flex: none;
+  position: relative;
   text-align: right;
   color: var(--p-surface-500);
   padding: 0 8px 0 12px;
   border-right: 1px solid var(--p-surface-800);
   user-select: none;
+}
+
+.log-gutter-num {
+  display: inline-block;
+}
+
+/* 复制按钮：默认隐藏，hover 行时显示 */
+.log-copy-btn {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--p-surface-500);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.log-row:hover .log-copy-btn {
+  opacity: 1;
+}
+
+.log-copy-btn:hover {
+  background: var(--p-surface-700);
+  color: var(--p-surface-200);
+}
+
+.log-copy-btn:active {
+  background: var(--p-surface-600);
+}
+
+.log-copy-btn .pi {
+  font-size: 10px;
 }
 
 .log-line {

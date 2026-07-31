@@ -120,10 +120,10 @@ func TestUIWithDefaults(t *testing.T) {
 		in   UISettings
 		want UISettings
 	}{
-		{in: UISettings{}, want: UISettings{LogFontSize: 14, ScrollbarSize: 10}},
-		{in: UISettings{LogFontSize: 5, ScrollbarSize: 3}, want: UISettings{LogFontSize: 10, ScrollbarSize: 6}},
-		{in: UISettings{LogFontSize: 50, ScrollbarSize: 100}, want: UISettings{LogFontSize: 28, ScrollbarSize: 24}},
-		{in: UISettings{LogFontSize: 18, ScrollbarSize: 12}, want: UISettings{LogFontSize: 18, ScrollbarSize: 12}},
+		{in: UISettings{}, want: UISettings{LogFontSize: 14, ScrollbarSize: 10, MaxLogLines: 128}},
+		{in: UISettings{LogFontSize: 5, ScrollbarSize: 3, MaxLogLines: 1}, want: UISettings{LogFontSize: 10, ScrollbarSize: 6, MaxLogLines: 16}},
+		{in: UISettings{LogFontSize: 50, ScrollbarSize: 100, MaxLogLines: 99999}, want: UISettings{LogFontSize: 28, ScrollbarSize: 24, MaxLogLines: 1024}},
+		{in: UISettings{LogFontSize: 18, ScrollbarSize: 12, MaxLogLines: 256}, want: UISettings{LogFontSize: 18, ScrollbarSize: 12, MaxLogLines: 256}},
 	}
 	for _, c := range cases {
 		got := c.in.withDefaults()
@@ -137,12 +137,12 @@ func TestUIWithDefaults(t *testing.T) {
 func TestUpdateUIClamped(t *testing.T) {
 	m := newTestManager(t)
 	s := m.Get()
-	s.UI = UISettings{LogFontSize: 50, ScrollbarSize: 1}
+	s.UI = UISettings{LogFontSize: 50, ScrollbarSize: 1, MaxLogLines: 99999}
 	if err := m.Update(s); err != nil {
 		t.Fatalf("Update 失败: %v", err)
 	}
 	got := m.Get().UI
-	if got.LogFontSize != 28 || got.ScrollbarSize != 6 {
+	if got.LogFontSize != 28 || got.ScrollbarSize != 6 || got.MaxLogLines != 1024 {
 		t.Errorf("UI 应被钳制，实际 %+v", got)
 	}
 }

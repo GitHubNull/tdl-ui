@@ -20,6 +20,7 @@ const defaults = (): Settings =>
     ui: {
       logFontSize: 14,
       scrollbarSize: 10,
+      maxLogLines: 128,
     },
     log: {
       targets: 'both',
