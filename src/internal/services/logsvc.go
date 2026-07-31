@@ -181,3 +181,33 @@ func (s *LogService) OpenLogDir() error {
 	}
 	return openDirectory(dir)
 }
+
+// ExportLogs 将日志内容写入指定目录下的文件，返回完整路径。
+// 仅允许 .log / .txt / .csv 扩展名。
+func (s *LogService) ExportLogs(dir, name, content string) (string, error) {
+	if dir == "" || name == "" {
+		return "", errors.New("导出目录和文件名不能为空")
+	}
+	// 安全检查：name 不能包含路径分隔符，防止目录穿越
+	if name != filepath.Base(name) {
+		return "", errors.New("非法文件名")
+	}
+	// 扩展名白名单
+	ext := filepath.Ext(name)
+	switch ext {
+	case ".log", ".txt", ".csv":
+	default:
+		return "", errors.Errorf("不支持的文件格式: %s，仅支持 .log / .txt / .csv", ext)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		logLog.Errorf("创建导出目录失败: %s: %v", dir, err)
+		return "", err
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		logLog.Errorf("导出日志失败: %s: %v", path, err)
+		return "", err
+	}
+	logLog.Infof("日志已导出: %s (%d 字节)", path, len(content))
+	return path, nil
+}

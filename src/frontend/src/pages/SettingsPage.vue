@@ -218,7 +218,7 @@ function onTheme(mode: ThemeMode) {
 
 async function browse() {
   try {
-    const picked = await Download.selectDirectory()
+    const picked = await Download.selectDirectory("download", store.settings.downloadDir)
     if (picked) store.settings.downloadDir = picked
   } catch (e: any) {
     toast.add({ severity: 'error', summary: '选择目录失败', detail: String(e), life: 4000 })
@@ -227,7 +227,7 @@ async function browse() {
 
 async function browseLogDir() {
   try {
-    const picked = await Download.selectDirectory()
+    const picked = await Download.selectDirectory("logDir", store.settings.log.dir)
     if (picked) store.settings.log.dir = picked
   } catch (e: any) {
     toast.add({ severity: 'error', summary: '选择目录失败', detail: String(e), life: 4000 })
@@ -236,7 +236,7 @@ async function browseLogDir() {
 
 async function browseCacheDir() {
   try {
-    const picked = await Download.selectDirectory()
+    const picked = await Download.selectDirectory("cache", store.settings.cacheDir)
     if (picked) store.settings.cacheDir = picked
   } catch (e: any) {
     toast.add({ severity: 'error', summary: '选择目录失败', detail: String(e), life: 4000 })
@@ -245,7 +245,7 @@ async function browseCacheDir() {
 
 async function browseTempDir() {
   try {
-    const picked = await Download.selectDirectory()
+    const picked = await Download.selectDirectory("temp", store.settings.tempDir)
     if (picked) store.settings.tempDir = picked
   } catch (e: any) {
     toast.add({ severity: 'error', summary: '选择目录失败', detail: String(e), life: 4000 })

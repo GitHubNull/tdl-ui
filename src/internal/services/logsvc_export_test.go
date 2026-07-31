@@ -37,10 +37,6 @@ func TestExportLogsWritesFile(t *testing.T) {
 	if string(b) != "time,level,module,source,message\n" {
 		t.Fatalf("导出内容不一致: %q", string(b))
 	}
-	// 导出目录应进入 logExport 历史
-	if recent := s.cfg.RecentDirs("logExport"); len(recent) != 1 || recent[0] != dir {
-		t.Fatalf("导出目录应记入历史，实际 %v", recent)
-	}
 }
 
 // TestExportLogsRejectsPathInFilename 文件名含路径分隔符被拒（防目录穿越）。

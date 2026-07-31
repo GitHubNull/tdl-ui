@@ -117,6 +117,11 @@ func (s *ScriptService) TestRun(src string) TestRunResult {
 	return res
 }
 
+// Templates 返回内置脚本模板列表（含源码）。
+func (s *ScriptService) Templates() []script.Template {
+	return script.Templates()
+}
+
 // StarterTemplate 返回新建脚本的起始模板。
 func (s *ScriptService) StarterTemplate() string {
 	return `package main

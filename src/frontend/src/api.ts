@@ -55,6 +55,7 @@ export const Script = {
   remove: ScriptService.Delete,
   validate: ScriptService.Validate,
   testRun: ScriptService.TestRun,
+  templates: ScriptService.Templates,
   starterTemplate: ScriptService.StarterTemplate,
 }
 
@@ -64,6 +65,8 @@ export const SettingsApi = {
   save: SettingsService.Save,
   dataDir: SettingsService.DataDir,
   clearCache: SettingsService.ClearCache,
+  recentDirs: SettingsService.RecentDirs,
+  addRecentDir: SettingsService.AddRecentDir,
 }
 
 // ---- ChatService ----
@@ -80,6 +83,7 @@ export const LogApi = {
   readLogFile: LogService.ReadLogFile,
   importYAMLConfig: LogService.ImportYAMLConfig,
   exportYAMLConfig: LogService.ExportYAMLConfig,
+  exportLogs: LogService.ExportLogs,
   openLogDir: LogService.OpenLogDir,
 }
 

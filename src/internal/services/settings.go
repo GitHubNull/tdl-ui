@@ -46,3 +46,44 @@ func (s *SettingsService) ClearCache() error {
 	logSettings.Infof("缓存已清空: %s", s.cfg.CacheDir())
 	return nil
 }
+
+// RecentDirs 返回指定用途的最近目录历史（最近优先，上限 10 条）。
+func (s *SettingsService) RecentDirs(kind string) []string {
+	dirs := s.cfg.Get().RecentDirs
+	if dirs == nil {
+		return nil
+	}
+	return dirs[kind]
+}
+
+// AddRecentDir 将指定目录插入该用途的最近历史顶部，去重并裁剪到 10 条上限，返回更新后的列表。
+func (s *SettingsService) AddRecentDir(kind, dir string) ([]string, error) {
+	if dir == "" {
+		return s.RecentDirs(kind), nil
+	}
+	cur := s.cfg.Get()
+	dirs := cur.RecentDirs
+	if dirs == nil {
+		dirs = make(map[string][]string)
+	}
+	list := dirs[kind]
+	// 去重
+	filtered := make([]string, 0, len(list)+1)
+	filtered = append(filtered, dir)
+	for _, d := range list {
+		if d != dir {
+			filtered = append(filtered, d)
+		}
+	}
+	if len(filtered) > 10 {
+		filtered = filtered[:10]
+	}
+	dirs[kind] = filtered
+	cur.RecentDirs = dirs
+	if err := s.cfg.Update(cur); err != nil {
+		logSettings.Errorf("保存最近目录失败: kind=%s err=%v", kind, err)
+		return nil, err
+	}
+	logSettings.Debugf("已更新最近目录: kind=%s dir=%s 条目数=%d", kind, dir, len(filtered))
+	return filtered, nil
+}

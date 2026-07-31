@@ -13,6 +13,7 @@ export type TaskOptions = engine.TaskOptions
 export type TaskView = engine.TaskView
 export type TaskFile = engine.TaskFile
 export type ScriptMeta = script.Meta
+export type ScriptTemplate = script.Template
 export type ValidateResult = services.ValidateResult
 export type TestRunResult = services.TestRunResult
 export type DesktopAccount = services.DesktopAccount

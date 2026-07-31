@@ -108,15 +108,33 @@ func (s *DownloadService) OpenTaskDir(id string) error {
 	return openDirectory(dir)
 }
 
-// SelectDirectory 弹出系统目录选择框，返回所选目录（取消时为空串）。
-func (s *DownloadService) SelectDirectory() (string, error) {
+// SelectDirectory 弹出系统目录选择框，kind 区分用途标题，currentDir 为默认起始目录。
+// 取消时返回空串。
+func (s *DownloadService) SelectDirectory(kind string, currentDir string) (string, error) {
 	ctx := s.emitter.Ctx()
 	if ctx == nil {
 		return "", errors.New("应用尚未就绪")
 	}
+	title := "选择目录"
+	switch kind {
+	case "download":
+		title = "选择下载目录"
+	case "cache":
+		title = "选择缓存目录"
+	case "temp":
+		title = "选择临时目录"
+	case "logDir":
+		title = "选择日志目录"
+	case "logExport":
+		title = "选择导出目录"
+	}
+	defaultDir := s.cfg.Get().DownloadDir
+	if currentDir != "" {
+		defaultDir = currentDir
+	}
 	return runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{
-		Title:            "选择下载目录",
-		DefaultDirectory: s.cfg.Get().DownloadDir,
+		Title:            title,
+		DefaultDirectory: defaultDir,
 	})
 }
 

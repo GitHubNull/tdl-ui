@@ -15,9 +15,11 @@ import (
 
 // Meta 脚本元信息（列表展示用）。
 type Meta struct {
-	Name      string `json:"name"`      // 不含扩展名的脚本名
-	Size      int64  `json:"size"`      // 文件大小（字节）
-	UpdatedAt string `json:"updatedAt"` // 最后修改时间（YYYY-MM-DD HH:MM:SS）
+	Name        string `json:"name"`        // 不含扩展名的脚本名
+	Size        int64  `json:"size"`        // 文件大小（字节）
+	UpdatedAt   string `json:"updatedAt"`   // 最后修改时间（YYYY-MM-DD HH:MM:SS）
+	Description string `json:"description"` // 从源码头部注释提取的说明
+	Enabled     bool   `json:"enabled"`     // 是否启用（Store 不维护，始终 false）
 }
 
 // Store 管理脚本目录下的 .go 文件。
@@ -53,7 +55,7 @@ func (s *Store) path(name string) (string, error) {
 	return filepath.Join(s.dir, name+".go"), nil
 }
 
-// List 列出所有脚本，按名称排序。
+// List 列出所有脚本，按名称排序，说明取自源码头部注释。
 func (s *Store) List() ([]Meta, error) {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
@@ -69,14 +71,47 @@ func (s *Store) List() ([]Meta, error) {
 		if err != nil {
 			continue
 		}
+		name := strings.TrimSuffix(e.Name(), ".go")
+		desc := extractDescription(filepath.Join(s.dir, e.Name()))
 		metas = append(metas, Meta{
-			Name:      strings.TrimSuffix(e.Name(), ".go"),
-			Size:      info.Size(),
-			UpdatedAt: info.ModTime().Format("2006-01-02 15:04:05"),
+			Name:        name,
+			Size:        info.Size(),
+			UpdatedAt:   info.ModTime().Format("2006-01-02 15:04:05"),
+			Description: desc,
+			Enabled:     false, // Store 层不维护启用状态
 		})
 	}
 	sort.Slice(metas, func(i, j int) bool { return metas[i].Name < metas[j].Name })
 	return metas, nil
+}
+
+// extractDescription 从脚本文件头部注释提取第一行有意义内容作为说明。
+func extractDescription(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	// 取第一段注释块中的非空行作为说明
+	lines := strings.SplitN(string(b), "\n", 10)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "//") {
+			line = strings.TrimPrefix(line, "//")
+			line = strings.TrimSpace(line)
+			if line != "" {
+				return line
+			}
+			continue
+		}
+		// 遇到非注释行（如 package main），停止搜索
+		if strings.HasPrefix(line, "package ") {
+			break
+		}
+	}
+	return ""
 }
 
 // Read 读取脚本源码。
@@ -129,4 +164,20 @@ func SampleFileInfo() scriptapi.FileInfo {
 		FileCaption: "示例消息文本",
 		FileSize:    1024 * 1024 * 128,
 	}
+}
+
+// SeedTemplates 首次启动时将内置模板写入脚本目录，已有脚本不会被覆盖。
+// 返回新写入的模板数量。
+func (s *Store) SeedTemplates() (int, error) {
+	n := 0
+	for _, tpl := range Templates() {
+		if _, err := os.Stat(filepath.Join(s.dir, tpl.ID+".go")); err == nil {
+			continue // 已有脚本不覆盖
+		}
+		if err := s.Write(tpl.ID, tpl.Source); err != nil {
+			return n, fmt.Errorf("写入模板 %s 失败: %w", tpl.ID, err)
+		}
+		n++
+	}
+	return n, nil
 }

@@ -129,7 +129,7 @@ function close() {
 
 async function browse() {
   try {
-    const picked = await Download.selectDirectory()
+    const picked = await Download.selectDirectory("download", dir.value)
     if (picked) dir.value = picked
   } catch (e: any) {
     toast.add({ severity: 'error', summary: '选择目录失败', detail: String(e), life: 4000 })

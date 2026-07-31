@@ -44,6 +44,8 @@ type Settings struct {
 	VideoWorkers int `json:"videoWorkers"`
 	// ProgressIntervalMs 单文件下载进度事件最小推送间隔（毫秒），0 回退内置默认值 200（ARC-003）
 	ProgressIntervalMs int `json:"progressIntervalMs"`
+	// RecentDirs 各用途最近使用目录历史（key＝download/logExport/cache/temp/logDir）
+	RecentDirs map[string][]string `json:"recentDirs"`
 	// Log 日志配置（输出目标、级别、目录、格式与滚动策略）
 	Log logging.LogSettings `json:"log"`
 }
@@ -76,6 +78,7 @@ type yamlConfig struct {
 		LoggedInUserID   int64  `yaml:"loggedInUserId"`
 		LoggedInUsername string `yaml:"loggedInUsername"`
 	} `yaml:"session"`
+	RecentDirs map[string][]string `yaml:"recentDirs"`
 }
 
 func settingsToYAML(s Settings) yamlConfig {
@@ -95,6 +98,7 @@ func settingsToYAML(s Settings) yamlConfig {
 	y.Session.Proxy = s.Proxy
 	y.Session.LoggedInUserID = s.LoggedInUserID
 	y.Session.LoggedInUsername = s.LoggedInUsername
+	y.RecentDirs = s.RecentDirs
 	return y
 }
 
@@ -114,6 +118,7 @@ func yamlToSettings(y yamlConfig) Settings {
 		ThumbWorkers:       y.Tuning.ThumbWorkers,
 		VideoWorkers:       y.Tuning.VideoWorkers,
 		ProgressIntervalMs: y.Tuning.ProgressIntervalMs,
+		RecentDirs:         y.RecentDirs,
 		Log:                y.Log,
 	}
 }
