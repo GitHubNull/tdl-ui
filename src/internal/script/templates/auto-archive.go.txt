@@ -1,0 +1,85 @@
+// 【功能】自动化处理示例：演示 OnTaskStart / OnFileDone / OnTaskDone 三个生命周期钩子，统计各类型文件数量与总体积并在任务结束时输出汇总。
+// 【参数】bigFileMB：单文件体积超过该值（MB）时额外提示；verbose：是否逐个文件打印日志。
+// 【注意】钩子内不能访问文件系统与网络（沙箱只开放纯计算类标准库），需要落地清单请把汇总内容打印到日志面板后手工复制。Yaegi 沙箱内仅可用 tdlui/api 与部分标准库，单次调用有超时保护，勿做阻塞操作。
+package main
+
+import (
+	"fmt"
+	"path"
+	"sort"
+	"strings"
+
+	"tdlui/api"
+)
+
+// ---- 可调参数 ----
+var (
+	// bigFileMB 大文件提示阈值（MB）
+	bigFileMB int64 = 512
+	// verbose 是否逐文件打印
+	verbose = true
+)
+
+// 统计状态（脚本内存态）
+var (
+	countByExt = map[string]int{}
+	bytesByExt = map[string]int64{}
+)
+
+// OnTaskStart 任务开始：重置统计并打印任务概览。
+func OnTaskStart(t api.TaskInfo) {
+	countByExt = map[string]int{}
+	bytesByExt = map[string]int64{}
+	api.Logf("[自动化] 任务 %s 开始，目录 %s，共 %d 个文件", t.ID, t.Dir, t.Total)
+}
+
+// OnFileDone 单文件下载完成：累计统计并按需提示大文件。
+func OnFileDone(f api.FileInfo) {
+	ext := strings.ToLower(strings.TrimPrefix(path.Ext(f.FileName), "."))
+	if ext == "" {
+		ext = "(无扩展名)"
+	}
+	countByExt[ext]++
+	bytesByExt[ext] += f.FileSize
+
+	const mb = int64(1024 * 1024)
+	if bigFileMB > 0 && f.FileSize >= bigFileMB*mb {
+		api.Logf("[自动化] 大文件完成: %s (%s)", f.FileName, humanSize(f.FileSize))
+	} else if verbose {
+		api.Logf("[自动化] 完成: %s (%s)", f.FileName, humanSize(f.FileSize))
+	}
+}
+
+// OnTaskDone 任务结束：输出按类型分组的汇总清单。
+func OnTaskDone(t api.TaskInfo) {
+	exts := make([]string, 0, len(countByExt))
+	for ext := range countByExt {
+		exts = append(exts, ext)
+	}
+	sort.Strings(exts)
+
+	var total int64
+	lines := make([]string, 0, len(exts))
+	for _, ext := range exts {
+		total += bytesByExt[ext]
+		lines = append(lines, fmt.Sprintf("%s×%d(%s)", ext, countByExt[ext], humanSize(bytesByExt[ext])))
+	}
+
+	api.Logf("[自动化] 任务 %s 结束，状态 %s：成功 %d / 失败 %d，累计 %s",
+		t.ID, t.Status, t.Finished, t.Failed, humanSize(total))
+	if len(lines) > 0 {
+		api.Logf("[自动化] 类型分布: %s", strings.Join(lines, ", "))
+	}
+}
+
+// humanSize 字节数转可读字符串。
+func humanSize(n int64) string {
+	units := []string{"B", "KB", "MB", "GB", "TB"}
+	v := float64(n)
+	i := 0
+	for v >= 1024 && i < len(units)-1 {
+		v /= 1024
+		i++
+	}
+	return fmt.Sprintf("%.2f %s", v, units[i])
+}

@@ -1,0 +1,70 @@
+// 【功能】按媒体类型、文件大小区间与标题关键词过滤待下载文件，只保留命中规则的文件。
+// 【参数】allowExts：允许的扩展名白名单（空表示不限）；minSizeMB / maxSizeMB：大小区间（0 表示不限）；keywords：文件名或消息文本需包含的关键词之一（空表示不限）。
+// 【注意】Filter 返回 false 表示跳过该文件，执行出错时引擎默认保留文件。Yaegi 沙箱内仅可用 tdlui/api 与部分标准库，单次调用有超时保护，勿做阻塞操作。
+package main
+
+import (
+	"path"
+	"strings"
+
+	"tdlui/api"
+)
+
+// ---- 可调参数 ----
+var (
+	// allowExts 允许的扩展名（小写，不含点）；留空表示不限类型
+	allowExts = []string{"mp4", "mkv", "jpg", "png"}
+	// minSizeMB 最小文件大小（MB），0 表示不限
+	minSizeMB int64 = 1
+	// maxSizeMB 最大文件大小（MB），0 表示不限
+	maxSizeMB int64 = 2048
+	// keywords 文件名或消息文本需包含的关键词之一；留空表示不限
+	keywords = []string{}
+)
+
+// Filter 过滤待下载文件；返回 false 表示跳过。
+func Filter(f api.FileInfo) bool {
+	if len(allowExts) > 0 {
+		ext := strings.ToLower(strings.TrimPrefix(path.Ext(f.FileName), "."))
+		if !contains(allowExts, ext) {
+			api.Logf("[类型过滤] 跳过 %s（扩展名 %q 不在白名单）", f.FileName, ext)
+			return false
+		}
+	}
+
+	const mb = int64(1024 * 1024)
+	if minSizeMB > 0 && f.FileSize < minSizeMB*mb {
+		api.Logf("[大小过滤] 跳过 %s（小于 %d MB）", f.FileName, minSizeMB)
+		return false
+	}
+	if maxSizeMB > 0 && f.FileSize > maxSizeMB*mb {
+		api.Logf("[大小过滤] 跳过 %s（大于 %d MB）", f.FileName, maxSizeMB)
+		return false
+	}
+
+	if len(keywords) > 0 && !hitKeyword(f) {
+		api.Logf("[关键词过滤] 跳过 %s（未命中关键词）", f.FileName)
+		return false
+	}
+	return true
+}
+
+// hitKeyword 文件名或消息文本命中任一关键词。
+func hitKeyword(f api.FileInfo) bool {
+	hay := strings.ToLower(f.FileName + " " + f.FileCaption)
+	for _, k := range keywords {
+		if k != "" && strings.Contains(hay, strings.ToLower(k)) {
+			return true
+		}
+	}
+	return false
+}
+
+func contains(list []string, v string) bool {
+	for _, s := range list {
+		if s == v {
+			return true
+		}
+	}
+	return false
+}

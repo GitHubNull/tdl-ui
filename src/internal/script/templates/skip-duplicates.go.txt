@@ -1,0 +1,60 @@
+// 【功能】跳过重复与无用文件：同一任务内按「对话ID+消息ID+文件名」去重，并按扩展名/关键词黑名单排除。
+// 【参数】blockExts：需要跳过的扩展名黑名单；blockKeywords：文件名或消息文本命中即跳过的关键词；skipDuplicateNames：是否按名字去重。
+// 【注意】去重表存在于脚本内存中，任务重启或应用重启后重置，不做跨会话持久化。Yaegi 沙箱内仅可用 tdlui/api 与部分标准库，单次调用有超时保护，勿做阻塞操作。
+package main
+
+import (
+	"fmt"
+	"path"
+	"strings"
+
+	"tdlui/api"
+)
+
+// ---- 可调参数 ----
+var (
+	// blockExts 需跳过的扩展名（小写，不含点）
+	blockExts = []string{"webp", "tgs", "gif"}
+	// blockKeywords 命中即跳过的关键词
+	blockKeywords = []string{"广告", "sample", "preview"}
+	// skipDuplicateNames 是否按「对话ID_消息ID_文件名」去重
+	skipDuplicateNames = true
+)
+
+// seen 已处理过的文件指纹（脚本内存态，重启后重置）
+var seen = map[string]bool{}
+
+// Filter 过滤重复与黑名单文件；返回 false 表示跳过。
+func Filter(f api.FileInfo) bool {
+	ext := strings.ToLower(strings.TrimPrefix(path.Ext(f.FileName), "."))
+	for _, b := range blockExts {
+		if ext == b {
+			api.Logf("[黑名单] 跳过 %s（扩展名 %q）", f.FileName, ext)
+			return false
+		}
+	}
+
+	hay := strings.ToLower(f.FileName + " " + f.FileCaption)
+	for _, k := range blockKeywords {
+		if k != "" && strings.Contains(hay, strings.ToLower(k)) {
+			api.Logf("[黑名单] 跳过 %s（命中关键词 %q）", f.FileName, k)
+			return false
+		}
+	}
+
+	if skipDuplicateNames {
+		key := fmt.Sprintf("%d_%d_%s", f.DialogID, f.MessageID, strings.ToLower(f.FileName))
+		if seen[key] {
+			api.Logf("[去重] 跳过重复文件 %s", f.FileName)
+			return false
+		}
+		seen[key] = true
+	}
+	return true
+}
+
+// OnTaskStart 每个任务开始时清空去重表，避免跨任务误判。
+func OnTaskStart(t api.TaskInfo) {
+	seen = map[string]bool{}
+	api.Logf("[去重] 任务 %s 开始，已重置去重表（共 %d 个文件待处理）", t.ID, t.Total)
+}

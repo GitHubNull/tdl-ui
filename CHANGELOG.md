@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0] - 2026-08-01 01:26:14
+
+### Added
+- **日志导出功能**：日志页新增「导出」按钮与导出对话框（`ExportLogsDialog.vue`），支持选择导出范围（当前筛选结果 / 全部记录）与文件格式（`.log` 原始文本 / `.csv` 结构化表格含 time/level/module/source/message 列），后端 `LogService.ExportLogs` 执行文件写出；新增 `logsvc_export_test.go` 单元测试。
+- **脚本内置模板系统**：新增 `src/internal/script/templates/` 嵌入 4 个内置脚本模板（自动归档 `auto-archive`、媒体过滤 `filter-media`、按日期重命名 `rename-by-date`、跳过重复 `skip-duplicates`），通过 `go:embed` 嵌入二进制，`TemplateService` 提供清单 API；前端脚本编辑器新增「模板」按钮与 `ScriptTemplateDialog.vue` 弹窗，选择模板后灌入编辑器可修改保存；新增 `templates_test.go` 单元测试。
+- **DirSelect 可复用目录选择器**：新增 `DirSelect.vue` 组件（PrimeVue Select + 文件夹浏览按钮），支持历史下拉与自动填充最近目录，按 `kind` 分组持久化历史，统一各处手动目录选择实现。
+- **RepoWiki 知识库文档**：新增下载引擎状态机、Wails 服务层 API 契约、前端页面架构、脚本引擎安全约束、主题切换系统、事件驱动架构等架构文档及对应知识卡。
+
 ## [0.13.1] - 2026-07-31 22:54:03
 
 ### Fixed
