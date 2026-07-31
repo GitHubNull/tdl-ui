@@ -1,0 +1,388 @@
+name: Release
+
+# 仅在推送符合语义化版本规范的 tag 时触发（含 alpha/beta/rc 等预发布后缀）。
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'      # 正式版本，如 v0.13.0
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'    # 预发布版本，如 v0.13.1-rc.1 / -alpha.1 / -beta.2
+
+# 最小权限：仅创建 Release 需要写内容，不授予其他任何权限。
+permissions:
+  contents: write
+
+# 同一 tag 的发布串行执行，且不取消进行中的发布，避免重复发版与产物竞争。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  WAILS_VERSION: v2.11.0
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 前置守卫：确保 tag 版本与源码内版本号一致，避免版本不同步导致的发布事故。
+  # ---------------------------------------------------------------------------
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches source version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          BASE="${TAG#v}"          # 去掉前缀 v
+          BASE="${BASE%%-*}"       # 去掉预发布后缀，保留主版本号
+          echo "tag=${TAG}  base=${BASE}"
+
+          WAILS_VER="$(python3 -c "import json;print(json.load(open('src/wails.json'))['info']['productVersion'])")"
+          PKG_VER="$(python3 -c "import json;print(json.load(open('src/frontend/package.json'))['version'])")"
+          echo "wails.json productVersion=${WAILS_VER}"
+          echo "package.json version=${PKG_VER}"
+
+          fail=0
+          if [ "${BASE}" != "${WAILS_VER}" ]; then
+            echo "::error::tag 主版本(${BASE}) 与 src/wails.json productVersion(${WAILS_VER}) 不一致"
+            fail=1
+          fi
+          if [ "${BASE}" != "${PKG_VER}" ]; then
+            echo "::error::tag 主版本(${BASE}) 与 src/frontend/package.json version(${PKG_VER}) 不一致"
+            fail=1
+          fi
+          if [ "${fail}" -ne 0 ]; then
+            echo "请先同步版本号后重新打 tag（建议使用 smart-commit）。"
+            exit 1
+          fi
+          echo "版本号校验通过。"
+
+  # ---------------------------------------------------------------------------
+  # 先创建 Release（写入分组化 Release Notes），后续构建 job 直接把产物追加为
+  # Release 资产（不占用 Actions 制品存储配额）。
+  # ---------------------------------------------------------------------------
+  create-release:
+    needs: check-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 生成 Release Notes 需要完整 tag 历史
+
+      - name: Generate release notes
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          chmod +x .github/scripts/gen-release-notes.sh
+          .github/scripts/gen-release-notes.sh "${GITHUB_REF_NAME}" > release_notes.md
+          echo "----- release_notes.md -----"
+          cat release_notes.md
+
+      - name: Create or update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: tdl UI ${{ github.ref_name }}
+          body_path: release_notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+  # ---------------------------------------------------------------------------
+  # Windows 构建：amd64 / arm64（webview2 为纯 Go 加载器，可从 amd64 runner 交叉编译）。
+  # ---------------------------------------------------------------------------
+  build-windows:
+    needs: create-release
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            asset: tdl-ui_Windows_64bit.zip
+          - arch: arm64
+            asset: tdl-ui_Windows_arm64.zip
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive   # ARC-05：ref/tdl 子模块 replace 为构建必需
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: src/frontend/pnpm-lock.yaml
+
+      - name: Add GOPATH bin to PATH
+        shell: pwsh
+        run: echo "$(go env GOPATH)\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Build
+        working-directory: src
+        run: wails build -clean -platform windows/${{ matrix.arch }}
+
+      - name: Package and checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'stage'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item src/build/bin/tdl-ui.exe $stage
+          Copy-Item README.md,README_EN.md,LICENSE $stage
+          $asset = '${{ matrix.asset }}'
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $asset -Force
+          $sha1 = (Get-FileHash -Algorithm SHA1   $asset).Hash.ToLower()
+          $sha256 = (Get-FileHash -Algorithm SHA256 $asset).Hash.ToLower()
+          "$sha1  $asset"   | Out-File "$asset.sha1"   -Encoding ascii -NoNewline
+          "$sha256  $asset" | Out-File "$asset.sha256" -Encoding ascii -NoNewline
+
+      - name: Upload assets to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: true
+          files: |
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha1
+            ${{ matrix.asset }}.sha256
+
+  # ---------------------------------------------------------------------------
+  # macOS 构建：amd64 / arm64（macos-latest 为 arm64 runner，clang 可同 SDK 交叉到 amd64）。
+  # ---------------------------------------------------------------------------
+  build-macos:
+    needs: create-release
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            asset: tdl-ui_MacOS_64bit.zip
+          - arch: arm64
+            asset: tdl-ui_MacOS_arm64.zip
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: src/frontend/pnpm-lock.yaml
+
+      - name: Add GOPATH bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Build
+        working-directory: src
+        run: wails build -clean -platform darwin/${{ matrix.arch }}
+
+      - name: Package and checksum
+        run: |
+          set -euo pipefail
+          mkdir -p stage
+          cp -R "src/build/bin/tdl-ui.app" stage/
+          cp README.md README_EN.md LICENSE stage/
+          asset='${{ matrix.asset }}'
+          (cd stage && zip -qry "${GITHUB_WORKSPACE}/${asset}" .)
+          shasum -a 1   "${asset}" > "${asset}.sha1"
+          shasum -a 256 "${asset}" > "${asset}.sha256"
+
+      - name: Upload assets to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: true
+          files: |
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha1
+            ${{ matrix.asset }}.sha256
+
+  # ---------------------------------------------------------------------------
+  # Linux amd64：原生构建，CGO 链接 GTK3 + WebKit2GTK 4.1（webkit2_41 tag）。
+  # ---------------------------------------------------------------------------
+  build-linux-amd64:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libwebkit2gtk-4.1-dev build-essential pkg-config
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: src/frontend/pnpm-lock.yaml
+
+      - name: Add GOPATH bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Build
+        working-directory: src
+        run: wails build -clean -tags webkit2_41 -platform linux/amd64
+
+      - name: Package and checksum
+        run: |
+          set -euo pipefail
+          mkdir -p stage
+          cp src/build/bin/tdl-ui stage/
+          cp README.md README_EN.md LICENSE stage/
+          asset='tdl-ui_Linux_64bit.tar.gz'
+          tar -czf "${asset}" -C stage .
+          sha1sum   "${asset}" > "${asset}.sha1"
+          sha256sum "${asset}" > "${asset}.sha256"
+
+      - name: Upload assets to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: true
+          files: |
+            tdl-ui_Linux_64bit.tar.gz
+            tdl-ui_Linux_64bit.tar.gz.sha1
+            tdl-ui_Linux_64bit.tar.gz.sha256
+
+  # ---------------------------------------------------------------------------
+  # Linux arm64：公开仓库可使用免费 ARM runner 原生构建，无需 QEMU。
+  # ---------------------------------------------------------------------------
+  build-linux-arm64:
+    needs: create-release
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libwebkit2gtk-4.1-dev build-essential pkg-config
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: src/frontend/pnpm-lock.yaml
+
+      - name: Add GOPATH bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Build
+        working-directory: src
+        run: wails build -clean -tags webkit2_41 -platform linux/arm64
+
+      - name: Package and checksum
+        run: |
+          set -euo pipefail
+          mkdir -p stage
+          cp src/build/bin/tdl-ui stage/
+          cp README.md README_EN.md LICENSE stage/
+          asset='tdl-ui_Linux_arm64.tar.gz'
+          tar -czf "${asset}" -C stage .
+          sha1sum   "${asset}" > "${asset}.sha1"
+          sha256sum "${asset}" > "${asset}.sha256"
+
+      - name: Upload assets to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: true
+          files: |
+            tdl-ui_Linux_arm64.tar.gz
+            tdl-ui_Linux_arm64.tar.gz.sha1
+            tdl-ui_Linux_arm64.tar.gz.sha256
+
+  # ---------------------------------------------------------------------------
+  # 全部构建完成后，下载 Release 已有资产，生成汇总校验清单并回传。
+  # 使用 Release 资产而非 Actions 制品，不占用制品存储配额。
+  # ---------------------------------------------------------------------------
+  checksums:
+    needs:
+      - build-windows
+      - build-macos
+      - build-linux-amd64
+      - build-linux-arm64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release archives and aggregate checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist && cd dist
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern 'tdl-ui_Windows_*.zip' \
+            --pattern 'tdl-ui_MacOS_*.zip' \
+            --pattern 'tdl-ui_Linux_*.tar.gz'
+          : > tdl-ui_checksums_sha1.txt
+          : > tdl-ui_checksums_sha256.txt
+          shopt -s nullglob
+          for f in tdl-ui_Windows_*.zip tdl-ui_MacOS_*.zip tdl-ui_Linux_*.tar.gz; do
+            [ -f "$f" ] || continue
+            sha1sum   "$f" >> tdl-ui_checksums_sha1.txt
+            sha256sum "$f" >> tdl-ui_checksums_sha256.txt
+          done
+          echo "----- SHA256 -----"
+          cat tdl-ui_checksums_sha256.txt
+          gh release upload "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" --clobber \
+            tdl-ui_checksums_sha1.txt tdl-ui_checksums_sha256.txt
