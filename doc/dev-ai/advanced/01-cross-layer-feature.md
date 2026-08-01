@@ -27,7 +27,7 @@ src/internal/services/forward.go（新服务）或现有服务加方法
 ```
 
 - 导出方法 + JSON 可序列化参数/返回值
-- 新服务需在 `src/main.go` 的 `Bind` 数组注册，并在 `OnStartup` 链路中完成依赖注入（参考现有五服务的构造顺序：config → emitter → kv → scripts → taskManager → auth → download → script → settings → chat）
+- 新服务需在 `src/main.go` 的 `Bind` 数组注册，并在 `OnStartup` 链路中完成依赖注入（参考现有六服务的构造顺序：config → emitter → kv → logSvc → scripts → taskManager → auth → download → script → settings → chat）
 
 ## 第 3 步：事件契约
 

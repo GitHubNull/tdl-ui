@@ -1,6 +1,6 @@
 # AI 编程代理维护文档
 
-> [← 项目主页](../../README.md) | [人类开发者文档](../dev-human/README.md) | [根目录 agent.md](../../agent.md)
+> [← 项目主页](../../README.md) | [人类开发者文档](../dev-human/README.md) | [根目录 AGENTS.md](../../AGENTS.md)
 
 本系列面向维护 tdl UI 的 **AI 编程代理**，以**约束清单 + 任务配方**形式编写：先读约束避免破坏性修改，再按配方逐步执行常见任务。
 
@@ -18,7 +18,7 @@
 
 执行任务前按需读取，避免全仓库扫描：
 
-- **任何任务**：`agent.md`（根目录，硬约束速览）
+- **任何任务**：`AGENTS.md`（根目录，硬约束速览）
 - **改后端**：`src/internal/` 对应包 + `src/main.go`（绑定注册）
 - **改前端**：`src/frontend/src/api.ts` + `types.ts`（契约层）+ 目标页面/store
 - **改脚本引擎**：`src/internal/script/engine.go` + `scriptapi/scriptapi.go` + `engine_test.go`

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.18.1] - 2026-08-01 13:10:23
+
+### Changed
+- **AI 编程代理指南重命名**：`agent.md` 重命名为 `AGENTS.md`（符合业界惯例），内容同步更新（目录结构、后端模块、前端约定、验证要求），README 中的文档索引同步修正。
+- **README / README_EN 功能特性同步**：对话浏览补充虚拟滚动与智能预加载、任务管理补充单文件操作、新增媒体预览（Lightbox + 自定义视频播放器）与日志系统（实时浏览/历史查看/搜索过滤/导出）特性描述，快速上手新增日志页与教程页指引。
+- **doc/dev-ai 系列文档同步**：README、基础约束、绑定与事件、跨层特性等文档按当前代码实现更新。
+- **doc/dev-human 系列文档同步**：`intermediate/02-download-engine.md` 新增 SQLite 持久化层（store/ 四表结构、TaskRepo 接口方法表、WAL 配置、单连接池约束）与单文件操作接口（RedownloadFile / DeleteFileRecord / RevealFileInDir / ResumeTaskWithPending）章节；环境搭建、结构构建、Wails IPC 文档同步更新。
+- **doc/tutorials 系列文档同步**：`intermediate/02-settings.md` 新增日志显示（字体/滚动条/最大行数）、存储（缓存目录/视频临时目录/清空缓存）、日志（输出目标/级别/目录/格式模板/滚动策略）章节；安装、下载、过滤重命名、钩子教程同步更新。
+- **前端内置教程内容同步**：`src/frontend/src/content/tutorials/` 下 basic-install、intermediate-download、intermediate-settings 与 doc/tutorials 保持同步。
+
 ## [0.18.0] - 2026-08-01 11:53:07
 
 ### Added

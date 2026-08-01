@@ -21,20 +21,22 @@ src/
 ├── wails.json           # Wails 项目配置（pnpm 命令）
 ├── go.mod               # module tdl-ui；replace 指向 ../ref/tdl
 ├── internal/
-│   ├── config/          # 设置持久化（%AppData%\tdl-ui\settings.json）
+│   ├── config/          # 设置持久化（%AppData%\tdl-ui\config.yaml）
 │   ├── events/          # 事件名常量与 Emitter（Wails EventsEmit 封装）
 │   ├── scriptapi/       # 脚本可见类型：FileInfo / TaskInfo / Log
-│   ├── script/          # Yaegi 引擎封装 + 脚本文件 CRUD
+│   ├── script/          # Yaegi 引擎封装 + 脚本文件 CRUD + 内置模板（templates/）
 │   ├── engine/          # 下载任务引擎（iter/progress/elem/task/selection/links）
-│   └── services/        # Wails 绑定服务（Auth/Chat/Download/Script/Settings）
+│   ├── store/           # SQLite 任务持久化层（tasks/task_items/files/resume_points，TaskRepo 接口）
+│   ├── logging/         # 日志核心（zap + lumberjack，多目标输出、滚动、环形缓冲）
+│   └── services/        # Wails 绑定服务（Auth/Chat/Download/Script/Settings/Log）
 └── frontend/
     ├── src/
     │   ├── api.ts       # window.go 绑定封装（唯一后端调用入口）
     │   ├── types.ts     # 与 Go 结构体对应的 TS 类型契约
     │   ├── theme.ts     # 亮暗主题（localStorage + 跟随系统）
-    │   ├── router.ts    # 五页面路由（hash 模式）
-    │   ├── stores/      # Pinia：auth / chats / tasks / scripts / settings
-    │   └── pages/       # 五个页面组件（三段式 SFC）
+    │   ├── router.ts    # 八页面路由（hash 模式）
+    │   ├── stores/      # Pinia：auth / chats / tasks / scripts / settings / logs
+    │   └── pages/       # 八个页面组件（三段式 SFC）
     └── dist/            # 构建产物（go:embed 嵌入）
 ```
 

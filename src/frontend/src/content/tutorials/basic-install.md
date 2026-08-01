@@ -35,7 +35,10 @@
 
 ```
 tdl-ui/
-├── settings.json   # 应用设置
+├── config.yaml     # 应用设置
+├── logging.yaml    # 日志配置
+├── tasks.db        # 任务数据库（SQLite）
+├── cache/          # 缩略图与预览缓存
 ├── kv/             # Telegram 会话存储（bolt 数据库）
 └── scripts/        # 用户脚本（.go 文件）
 ```

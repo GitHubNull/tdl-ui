@@ -2,7 +2,7 @@
 
 > [← 返回项目主页](../../README.md)
 
-本系列面向维护 tdl UI 的人类开发者，按深度分为三级。AI 编程代理请优先阅读 [dev-ai 系列](../dev-ai/README.md)与根目录 [agent.md](../../agent.md)。
+本系列面向维护 tdl UI 的人类开发者，按深度分为三级。AI 编程代理请优先阅读 [dev-ai 系列](../dev-ai/README.md)与根目录 [AGENTS.md](../../AGENTS.md)。
 
 ## 目录
 

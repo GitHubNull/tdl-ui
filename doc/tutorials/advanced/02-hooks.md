@@ -47,45 +47,69 @@ api.Logf("任务 %s：成功 %d / 失败 %d", t.ID, t.Finished, t.Failed)
 package main
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"tdlui/api"
 )
 
+// 记录任务开始时间，用于计算耗时
+var startAt time.Time
+
 func OnTaskStart(t api.TaskInfo) {
-	api.Logf("[%s] 任务开始，共 %d 个文件", time.Now().Format("15:04:05"), t.Total)
+	startAt = time.Now()
+	api.Logf("[%s] 任务 %s 开始，共 %d 个文件，保存到 %s",
+		startAt.Format("15:04:05"), t.ID, t.Total, t.Dir)
 }
 
 func OnFileDone(f api.FileInfo) {
 	api.Logf("完成 %s（%.1f MB）", f.FileName, float64(f.FileSize)/1024/1024)
 }
 
-// 任务结束时在下载目录写一份清单
 func OnTaskDone(t api.TaskInfo) {
-	api.Logf("任务结束：成功 %d，失败 %d", t.Finished, t.Failed)
-
-	report := fmt.Sprintf("task=%s time=%s ok=%d fail=%d\n",
-		t.ID, time.Now().Format(time.RFC3339), t.Finished, t.Failed)
-	path := filepath.Join(t.Dir, "download-report.txt")
-
-	fd, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		api.Log("写报告失败:", err.Error())
-		return
+	elapsed := time.Since(startAt).Round(time.Second)
+	rate := 0.0
+	if t.Total > 0 {
+		rate = float64(t.Finished) / float64(t.Total) * 100
 	}
-	defer fd.Close()
-	fd.WriteString(report)
+	api.Logf("任务结束（%s）：状态=%s 成功=%d 失败=%d 成功率=%.1f%% 耗时=%s",
+		t.ID, t.Status, t.Finished, t.Failed, rate, elapsed)
 }
 ```
+
+> 注意：沙箱禁止导入 `os` 包，无法直接写文件。所有统计信息通过 `api.Logf` 输出到脚本日志面板。
 
 ## 执行语义
 
 - 钩子在**下载引擎所在的后端协程**中同步调用，请避免长耗时操作（有 10 秒超时保护）
 - 钩子 panic 不会中断下载任务，错误会记录到脚本日志
 - 任务被取消 / 失败时同样触发 `OnTaskDone`，可通过 `t.Status` 区分
+
+## 错误处理与调试
+
+### panic 自动恢复
+
+脚本中的 `panic` 会被引擎捕获，**不会中断下载任务**。各函数的兜底行为：
+
+| 函数 | panic 后的兜底行为 |
+| --- | --- |
+| `Filter` | 默认**保留**该文件（宁多勿漏） |
+| `Rename` | 回退到默认命名模板 |
+| `OnTaskStart` / `OnFileDone` / `OnTaskDone` | 忽略本次调用，任务继续 |
+
+### 10 秒超时与熔断
+
+每次契约函数调用有 **10 秒超时**。一旦超时，该函数被**熔断禁用**——本任务后续不再调用它。写循环时务必确认退出条件，避免无界循环。
+
+> **已知限制**：超时的执行体无法被中断（Yaegi 解释器不支持强制终止），已在死循环中的那次执行会一直在后台占用一颗 CPU 核，直到应用退出。
+
+### 常见错误
+
+| 报错 / 现象 | 原因 | 解决 |
+| --- | --- | --- |
+| `脚本编译失败: ... undefined: os` | 导入了沙箱禁止的包 | 只使用白名单内的 14 个标准库包 |
+| `Filter 签名错误` | 参数或返回值类型写错 | 对照 API 参考修正签名 |
+| 日志出现 `脚本 panic: ...` | 运行期 panic | 根据 panic 信息定位，注意空串、除零、越界 |
+| 日志出现 `[熔断] XX 执行超过 10s` | 函数单次执行超过 10 秒 | 排查死循环/重量级计算；修正后重启应用 |
 
 ## 相关文档
 

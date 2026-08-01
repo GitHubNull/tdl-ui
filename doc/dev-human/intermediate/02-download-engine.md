@@ -86,9 +86,64 @@ if it.opts.Contracts.HasRename() {
 
 生命周期钩子在 task.go 中调用：解析完成后 `OnTaskStart`、progress 完成回调里 `OnFileDone`、execute 结束时 `OnTaskDone`。
 
+## SQLite 持久化层（store/）
+
+`src/internal/store/` 提供下载任务的 SQLite 持久化，采用 `modernc.org/sqlite`（纯 Go，无需 CGO），启用 WAL 与外键级联。
+
+### 四表结构
+
+| 表 | 说明 | 级联 |
+| --- | --- | --- |
+| `tasks` | 任务主表（ID、目录、脚本、状态、计数） | — |
+| `task_items` | 消息项（URL 或选集），外键关联 tasks | ON DELETE CASCADE |
+| `files` | 文件记录（路径、大小、状态、对话/消息 ID），外键关联 tasks | ON DELETE CASCADE |
+| `resume_keys` | 断点逐 key 行（ENG-12 优化），外键关联 tasks | ON DELETE CASCADE |
+
+### Store 接口（TaskRepo）
+
+`store.Store` 实现了 `engine.TaskRepo` 接口，供 `engine.Manager` 调用：
+
+| 方法 | 用途 |
+| --- | --- |
+| `InsertTask(ctx, Task, []Item)` | 事务内插入任务 + 消息项 |
+| `UpdateTaskStatus(ctx, id, status, errMsg)` | 更新任务状态 |
+| `UpdateTaskState(ctx, id, status, errMsg, total, finished, failed)` | 单条 UPDATE 同步状态与计数（避免并发撕裂） |
+| `DeleteTask(ctx, id)` | 删除任务（级联清理 items/files/resume_keys） |
+| `LoadAllTasks(ctx)` | 启动时加载全部任务 |
+| `ListItems(ctx, taskID)` | 返回任务的消息项 |
+| `UpsertFile(ctx, File)` | 插入或覆盖文件记录 |
+| `FinishFile(ctx, taskID, oldPath, File)` | `.tmp` 行替换为最终文件记录 |
+| `MarkFileFailed(ctx, taskID, path)` | 标记文件状态为 failed |
+| `DropFile(ctx, taskID, path)` | 移除文件记录 |
+| `ListFiles(ctx, taskID)` | 返回任务的全部文件记录 |
+| `DeleteFilesByPath(ctx, taskID, paths)` | 批量删除指定路径的文件记录 |
+| `ListDoneFilesByDialog(ctx, dialogID)` | 对话内已完成的文件记录（"已下载"标记数据源） |
+| `GetDoneFile(ctx, dialogID, messageID)` | 指定消息最新的已完成文件记录 |
+| `LoadFinished(ctx, taskID)` | 读取断点集合 |
+| `AddFinished(ctx, taskID, key)` | 追加单个断点 key（O(1) 行级写入） |
+| `SaveFinished(ctx, taskID, map[string]struct{})` | 批量补写断点（任务中断时兜底） |
+| `DeleteResume(ctx, taskID)` | 删除任务全部断点 |
+| `DeleteResumeKey(ctx, taskID, key)` | 删除单个断点 key（单文件重新下载时使用） |
+
+数据库启用 `PRAGMA journal_mode(WAL)` + `busy_timeout(5000)` + `synchronous(NORMAL)`，单连接池（`SetMaxOpenConns(1)`）避免 WAL 竞争。关闭时先置 `closed` 原子标志，让在途写入拿到 `ErrStoreClosed` 而非驱动错误（ARC-002）。
+
+## 单文件操作接口
+
+`DownloadService` 暴露以下单文件操作，供 TasksPage 右键菜单调用：
+
+| 方法 | 说明 |
+| --- | --- |
+| `RedownloadFile(taskID, filePath)` | 重新下载：删除断点 key + 删除文件记录 + 触发任务恢复 |
+| `DeleteFileRecord(taskID, filePath)` | 仅删除 SQLite 中的文件记录，不碰磁盘文件 |
+| `RevealFileInDir(filePath)` | 在系统文件管理器中打开目录并选中该文件 |
+| `ResumeTaskWithPending(id)` | 恢复任务时只下载 state ≠ 'done' 的文件（继续未完成部分） |
+
+对应前端操作：任务列表中右键文件行 →「重新下载」「打开所在目录」「删除记录」「删除文件」。
+
 ## 并发与存储约束
 
 - **bolt kv 全局单例**：bbolt 有文件锁，重复打开会死锁。所有服务共享 `main.go` 创建的唯一实例
+- **SQLite 单连接池**：写入串行化，避免 WAL 竞争
 - 下载参数（Threads/Limit/PoolSize）从 Settings 读取，创建任务时快照，运行中修改不影响已有任务
 
 ## 下一步

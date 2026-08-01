@@ -11,12 +11,15 @@ tdl UI is a GUI transformation of the CLI tool tdl: it reuses tdl's battle-teste
 ## Features
 
 - **Account login**: code login, QR code login, one-click Telegram Desktop session import
-- **Chat browser**: dual-panel chat list and media grid with search/filter/pagination and thumbnail preview
+- **Chat browser**: dual-panel chat list and media grid with search/filter/pagination, thumbnail preview, virtual scrolling and smart preloading
 - **Media download**: select media from chats or paste message links for batch download, multi-threaded with resumable transfers (same engine as tdl CLI)
-- **Task management**: real-time progress, pause / resume (resumable) / cancel
+- **Task management**: real-time progress, pause / resume (resumable) / cancel; per-file operations (redownload / open directory / delete record / delete file)
+- **Media preview**: Lightbox full-screen preview (image zoom / pan), custom video player (stream-while-download, keyboard shortcuts)
 - **Script engine** (Yaegi, Go syntax):
   - `Filter` / `Rename` — skip files by condition, customize file names
   - `OnTaskStart` / `OnFileDone` / `OnTaskDone` — task lifecycle hooks
+  - Built-in script templates, enable toggles, validation and dry-run
+- **Log system**: real-time log viewer, history file browsing, search & filter, log export (.log / .txt / .csv)
 - **Proxy support**: SOCKS5 / HTTP
 - **Clean UI**: light / dark / system themes with localStorage persistence, single portable binary
 
@@ -51,8 +54,9 @@ wails build -ldflags "-s -w" -trimpath
 1. Open the app and log in to Telegram on the **Account** page (QR code recommended)
 2. On the **Chats** page, select a chat from the left panel and browse media on the right (filter by type/keyword/size)
 3. Check the files you want to download and click "Download selected"; or go to the **Download** page and paste message links
-4. Watch real-time progress on the **Download** page; pause / resume (resumable) / cancel anytime
+4. Watch real-time progress on the **Download** page; pause / resume (resumable) / cancel; expand file list for per-file operations
 5. (Optional) Write Go scripts on the **Scripts** page for filtering, renaming and automation hooks
+6. (Optional) View runtime logs on the **Logs** page, read graded tutorials on the **Tutorial** page
 
 ## Documentation
 
@@ -70,8 +74,9 @@ wails build -ldflags "-s -w" -trimpath
 ├── ref/tdl      # tdl upstream submodule (read-only, sync-only)
 ├── src/         # Wails app source (Go backend + Vue frontend)
 ├── doc/         # documentation (tutorials / dev-human / dev-ai)
+├── img/         # brand visual assets (icons / logos / illustrations / promotional)
 ├── tmp/         # temporary files (not committed)
-└── agent.md     # AI coding agent quick-reference guide
+└── AGENTS.md     # AI coding agent quick-reference guide
 ```
 
 ## License & Disclaimer

@@ -9,7 +9,7 @@
 | Go | 1.25+ | tdl 子模块声明 go 1.25.x，Go 工具链会按 `GOTOOLCHAIN=auto` 自动下载匹配版本 |
 | Node.js | 20+ | 前端构建 |
 | pnpm | 9+ | 前端包管理（项目约定，勿用 npm/yarn） |
-| Wails CLI | v2.9+ | `go install github.com/wailsapp/wails/v2/cmd/wails@latest` |
+| Wails CLI | v2.11+ | `go install github.com/wailsapp/wails/v2/cmd/wails@latest` |
 | WebView2 | 任意 | Windows 10/11 一般已内置 |
 
 ## 克隆与初始化

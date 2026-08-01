@@ -121,7 +121,7 @@ bolt/SQLite 被关闭后，仍在运行的 goroutine 会持续报错，下载进
 
 ### 修复方案
 1. 若 `ref/tdl` 无本地补丁：删除 replace，直接用上游 tag（可复现、可 `govulncheck`）。
-2. 若有补丁：在 `README` / `agent.md` 中固化 submodule commit 要求，并在 CI 加 submodule 状态校验步骤。
+2. 若有补丁：在 `README` / `AGENTS.md` 中固化 submodule commit 要求，并在 CI 加 submodule 状态校验步骤。
 3. 删除冗余的 `extension` replace 指令。
 4. 将 `go 1.25.8` 改为 `go 1.25`，按需用单独的 `toolchain` 行声明。
 5. replace 治理后将 `govulncheck` 纳入 CI。

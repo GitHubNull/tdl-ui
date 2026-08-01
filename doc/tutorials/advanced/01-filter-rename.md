@@ -31,12 +31,15 @@ func Rename(f api.FileInfo) string
 
 ## 编写与使用步骤
 
-1. 打开「脚本」页 → 点击 ➕ 新建，编辑器会填入起始模板
+1. 打开「脚本」页 → 点击 ➕ 新建，编辑器会填入起始模板（也可点击「模板」按钮从内置示例开始）
 2. 填写脚本名（如 `video-only`），编写代码
 3. 点击「校验」确认语法正确、契约函数被识别
 4. 点击「试运行」用内置示例文件预览 Filter/Rename 结果
 5. 点击「保存」
-6. 在「对话」页勾选媒体后点击「下载选中」，或在「下载」页创建任务时，从「过滤 / 命名脚本」下拉框选择该脚本
+6. 在脚本列表左侧勾选 **启用开关**，使该脚本出现在「添加下载」弹窗的脚本下拉中
+7. 在「对话」页勾选媒体后点击「下载选中」，或在「下载」页创建任务时，从「过滤 / 命名脚本」下拉框选择该脚本
+
+> 首次启动时应用会自动写入 4 个内置模板（`rename-by-date`、`filter-media`、`skip-duplicates`、`auto-archive`），默认全部禁用。删除后不再自动恢复，可从「模板」弹窗重新生成。
 
 ## 案例一：只下载大于 10MB 的视频
 
@@ -44,15 +47,27 @@ func Rename(f api.FileInfo) string
 package main
 
 import (
-	"strings"
+	"regexp"
 
 	"tdlui/api"
 )
 
+// 常见视频扩展名（不区分大小写）
+var videoExt = regexp.MustCompile(`(?i)\.(mp4|mkv|avi|mov|webm)$`)
+
+// 最小体积：10MB
+const minSize = 10 * 1024 * 1024
+
 func Filter(f api.FileInfo) bool {
-	isVideo := strings.HasSuffix(f.FileName, ".mp4") ||
-		strings.HasSuffix(f.FileName, ".mkv")
-	return isVideo && f.FileSize > 10*1024*1024
+	if !videoExt.MatchString(f.FileName) {
+		api.Logf("跳过非视频: %s", f.FileName)
+		return false
+	}
+	if f.FileSize < minSize {
+		api.Logf("跳过小文件: %s (%d 字节)", f.FileName, f.FileSize)
+		return false
+	}
+	return true
 }
 ```
 
@@ -89,8 +104,8 @@ func Rename(f api.FileInfo) string {
 ## 注意事项与安全边界
 
 - 脚本中的 `panic` 会被捕获：Filter 出错默认**保留**文件，Rename 出错回退默认模板，错误信息显示在脚本日志中
-- 单次调用有超时保护（10 秒），避免死循环卡住下载
-- 沙箱禁用 `os/exec`（不能执行外部命令）；文件与网络操作请谨慎使用
+- 单次调用有超时保护（10 秒），超时后该函数被熔断禁用，避免死循环卡住下载
+- 脚本运行在白名单沙箱中，仅允许导入 14 个纯计算类标准库包（`strings`、`fmt`、`regexp`、`time`、`path/filepath` 等）；`os`、`net`、`syscall` 等被完全禁止，导入即编译失败
 - 返回的文件名会自动清理非法字符
 
 ## 下一步

@@ -4,17 +4,18 @@
 
 本文是修改前后端交互面时的**契约对照表**。改动任何一侧都必须按表同步另一侧。
 
-## 绑定面：五个服务
+## 绑定面：六个服务
 
 `src/main.go` 中 `Bind` 注册，前端经 `window.go.services.<服务名>.<方法>` 访问（统一封装在 `src/frontend/src/api.ts`）：
 
 | Go 服务（src/internal/services/） | api.ts 导出 | 职责 |
 | --- | --- | --- |
 | `AuthService`（auth.go） | `Auth` | 验证码/二维码/Desktop 导入登录、登出、状态查询 |
-| `ChatService`（chat.go/thumb.go） | `Chat` | 对话列表、媒体分页查询、缩略图下载 |
-| `DownloadService`（download.go） | `Download` | 任务创建/暂停/恢复/取消/移除、目录选择 |
-| `ScriptService`（script.go） | `Script` | 脚本 CRUD、语法校验、试运行、起始模板 |
-| `SettingsService`（settings.go） | `SettingsApi` | 设置读写、数据目录 |
+| `ChatService`（chat.go/thumb.go） | `Chat` | 对话列表、媒体分页查询、缩略图下载、性能优化 API |
+| `DownloadService`（download.go） | `Download` | 任务创建/暂停/恢复/取消/移除、目录选择、单文件操作、已下载查询 |
+| `ScriptService`（script.go） | `Script` | 脚本 CRUD、语法校验、试运行、起始模板、内置模板播种 |
+| `SettingsService`（settings.go） | `SettingsApi` | 设置读写、数据目录、日志配置导入导出 |
+| `LogService`（log.go） | `Log` | 日志文件列表、日志导出、日志清理 |
 
 ## 事件契约（后端 → 前端）
 
@@ -26,6 +27,7 @@
 | `task:update` | `TaskView` | `stores/tasks.ts` 的 `init()` |
 | `task:file` | `FileEvent`（后端 200ms 节流） | `stores/tasks.ts` 的 `init()` |
 | `script:log` | `string` | `stores/scripts.ts` 的 `init()` |
+| `log:batch` | `LogEntry[]`（后端 250ms 批量） | `stores/logs.ts` 的 `init()` |
 
 `login:update.stage` 状态机取值：`qr` / `need_code` / `need_password` / `success` / `error` / `logout`。新增 stage 时需同步 `types.ts` 联合类型与 `LoginPage.vue` 分支。
 
@@ -43,9 +45,13 @@ Go 结构体 ↔ `src/frontend/src/types.ts` 手工同步，对应关系：
 | `engine.TaskOptions` / `TaskView` | `TaskOptions` / `TaskView` |
 | `engine.FileEvent` | `FileEvent` |
 | `engine.Selection` | `Selection` |
+| `engine.TaskFile` | `TaskFile` |
 | `script.Meta` | `ScriptMeta` |
 | `services.ValidateResult` / `TestRunResult` | 同名 |
 | `services.DesktopAccount` | `DesktopAccount` |
+| `services.ScriptTemplate` | `ScriptTemplate` |
+| `logging.LogEntry` | `LogEntry` |
+| `services.LogFileInfo` | `LogFileInfo` |
 
 同步检查配方：
 

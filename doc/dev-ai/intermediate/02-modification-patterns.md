@@ -33,7 +33,7 @@
 3. `stores/settings.ts` 若有局部编辑副本则同步
 4. `SettingsPage.vue` 添加控件（复用现有 PrimeVue 组件：InputText/InputNumber/Select/SelectButton）
 5. 若设置影响下载引擎（线程数、代理等），检查 `engine/task.go` 装配处是否读取该字段
-6. 验证：`go build` + `pnpm build` + `wails dev` 中修改并保存设置，重启确认持久化（设置存于用户数据目录 JSON）
+6. 验证：`go build` + `pnpm build` + `wails dev` 中修改并保存设置，重启确认持久化（设置存于用户数据目录 `config.yaml`）
 
 ## 配方 D：扩展脚本 API / 契约函数
 
@@ -57,7 +57,7 @@
 
 ## 配方 F：改文档
 
-1. 行为变更后定位受影响篇目：用户可见变化 → `doc/tutorials/`；架构/接口变化 → `doc/dev-human/` + 本系列；约束变化 → `agent.md` + `basic/01-constraints.md`
+1. 行为变更后定位受影响篇目：用户可见变化 → `doc/tutorials/`；架构/接口变化 → `doc/dev-human/` + 本系列；约束变化 → `AGENTS.md` + `basic/01-constraints.md`
 2. 保持每篇文档头部的返回链接格式与相对路径正确
 3. 中英 README 同步修改（`README.md` / `README_EN.md`）
 

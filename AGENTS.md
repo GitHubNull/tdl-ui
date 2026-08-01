@@ -1,11 +1,11 @@
-# agent.md — AI 编程代理指南
+# AGENTS.md — AI 编程代理指南
 
 面向 AI 编程代理的项目速览与硬性约束。详细任务配方见 [doc/dev-ai/](doc/dev-ai/README.md)。
 
 ## 项目概览
 
 tdl UI：基于 Wails v2 的 Telegram 媒体下载桌面客户端，复用 tdl（CLI）的下载引擎。
-功能范围（当前版本）：**账号登录 + 对话浏览 + 媒体下载 + Yaegi 脚本**。上传 / 转发 / 导出暂不在范围内。
+功能范围（当前版本）：**账号登录 + 对话浏览 + 媒体下载 + Yaegi 脚本 + 日志系统 + 使用教程 + 关于页**。上传 / 转发 / 导出暂不在范围内。
 
 ## 目录结构与硬性约束
 
@@ -38,12 +38,14 @@ tdl UI：基于 Wails v2 的 Telegram 媒体下载桌面客户端，复用 tdl�
 
 ## 后端模块（src/internal/）
 
-- `config/` — 设置持久化（`%AppData%\tdl-ui\settings.json`）
-- `events/` — Wails 事件契约：`login:update`、`task:update`、`task:file`、`script:log`
+- `config/` — 设置持久化（`%AppData%\tdl-ui\config.yaml`）
+- `events/` — Wails 事件契约：`login:update`、`task:update`、`task:file`、`script:log`、`log:batch`
 - `scriptapi/` — 脚本可见的 API 类型（FileInfo/TaskInfo/Log/Logf）
-- `script/` — Yaegi 引擎封装（契约函数提取、panic 恢复、10 秒超时保护）+ 脚本文件 CRUD
+- `script/` — Yaegi 引擎封装（契约函数提取、panic 恢复、10 秒超时保护）+ 脚本文件 CRUD + 内置模板（`script/templates/`）
 - `engine/` — 下载任务管理器（状态机 queued/running/paused/done/failed/canceled、断点续传、选集下载）
-- `services/` — Wails 绑定服务：AuthService / ChatService / DownloadService / ScriptService / SettingsService
+- `store/` — SQLite 任务持久化层（tasks/task_items/files/resume_points 四表，WAL 模式，TaskRepo 接口）
+- `logging/` — 日志核心（zap + lumberjack，多目标输出、格式模板、文件滚动、内存环形缓冲、批量事件推送）
+- `services/` — Wails 绑定服务：AuthService / ChatService / DownloadService / ScriptService / SettingsService / LogService
 
 关键设计：bolt kv 全局唯一实例（bbolt 文件锁）；暂停 = 取消 + 保留 resume key，恢复 = 重跑 + 断点续传；登录交互 = channel + 事件；ChatService 常驻连接 = 懒启动 + 断线重建 + jobs 通道串行化。
 
@@ -53,7 +55,7 @@ tdl UI：基于 Wails v2 的 Telegram 媒体下载桌面客户端，复用 tdl�
 - 后端调用统一走 `src/frontend/src/api.ts`（`window.go.services.*` 封装）；类型契约在 `types.ts`，修改 Go 结构体 JSON tag 后必须同步
 - 事件订阅在 Pinia store 的 `init()` 中完成（App.vue onMounted 统一调用）
 - UI 规范：简约美观大方；仅使用确认存在的 PrimeIcons；暗黑模式 localStorage 持久化 + 跟随系统；主按钮实心主色
-- 页面路由（hash 模式）：`/` → `/chats`（对话浏览）, `/login`（账号）, `/tasks`（下载任务）, `/scripts`（脚本）, `/settings`（设置）
+- 页面路由（hash 模式）：`/` → `/chats`（对话浏览）, `/login`（账号）, `/tasks`（下载任务）, `/scripts`（脚本）, `/logs`（日志）, `/settings`（设置）, `/tutorial`（教程）, `/about`（关于）
 
 ## 常用命令
 

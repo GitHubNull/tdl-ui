@@ -6,10 +6,10 @@ tdl UI 的前后端通过 Wails v2 的两条通道通信：**方法绑定**（�
 
 ## 1. 方法绑定（Bind）
 
-`src/main.go` 中注册五个服务：
+`src/main.go` 中注册六个服务：
 
 ```go
-Bind: []interface{}{ authSvc, chatSvc, downloadSvc, scriptSvc, settingsSvc },
+Bind: []interface{}{ authSvc, downloadSvc, scriptSvc, settingsSvc, chatSvc, logSvc },
 ```
 
 Wails 将服务的**导出方法**暴露为 `window.go.services.<服务名>.<方法名>`，返回 Promise。前端统一通过 `src/frontend/src/api.ts` 封装调用，**页面组件不允许直接触碰 `window.go`**：
@@ -40,9 +40,13 @@ Go 结构体经 JSON 序列化传给前端，`src/frontend/src/types.ts` 手工�
 | `engine.TaskOptions` / `TaskView` | `TaskOptions` / `TaskView` |
 | `engine.FileEvent` | `FileEvent` |
 | `engine.Selection` | `Selection` |
+| `engine.TaskFile` | `TaskFile` |
 | `script.Meta` | `ScriptMeta` |
 | `services.ValidateResult` / `TestRunResult` | 同名 |
 | `services.DesktopAccount` | `DesktopAccount` |
+| `services.ScriptTemplate` | `ScriptTemplate` |
+| `logging.LogEntry` | `LogEntry` |
+| `services.LogFileInfo` | `LogFileInfo` |
 
 ## 2. 事件系统（Events）
 
@@ -54,6 +58,7 @@ Go 结构体经 JSON 序列化传给前端，`src/frontend/src/types.ts` 手工�
 | `task:update` | `TaskView` | 任务级状态/计数变化 |
 | `task:file` | `FileEvent`（200ms 节流） | 单文件下载进度 |
 | `script:log` | string | 脚本 `api.Log` 输出 |
+| `log:batch` | `[]LogEntry`（250ms 批量） | 应用运行日志推送 |
 
 前端约定：**事件订阅统一放在 Pinia store 的 `init()` 中**，由 `App.vue` 的 `onMounted` 一次性调用，避免组件卸载导致漏订阅。
 
@@ -78,6 +83,7 @@ SubmitCode(code) ───────────► codeCh <- code，flow 继�
 - `ListDialogs()`：拉取全部对话列表，缓存 access hash 到 bolt
 - `ListMedia(q)`：游标分页查询对话内媒体，支持服务端过滤（photo/video/document）
 - `GetThumbnail(...)`：按需下载清晰缩略图，内存缓存（LRU 上限 500 条）
+- 性能优化 API：`PreloadThumbs` / `WarmupCache` / `GetCacheStats` / `GetCacheHitRate` / `SetPreloadEnabled` / `ReportPerformance` 等
 
 登出时调用 `chatSvc.Stop()` 关闭连接，下次查询自动重建。
 
