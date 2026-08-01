@@ -147,6 +147,8 @@ import Tag from 'primevue/tag'
 import VideoPlayer from './VideoPlayer.vue'
 import { Chat, previewURL, localMediaURL, thumbURL, videoStreamURL } from '../api'
 import { fmtDate, fmtSize, isPlayableVideo, kindIcon, mediaErrorText } from '../utils/format'
+import { useMediaPreloader } from '../composables/useMediaPreloader'
+import { usePerformanceMonitor } from '../utils/performance'
 import type { MediaItem } from '../types'
 
 const props = defineProps<{
@@ -166,6 +168,16 @@ const emit = defineEmits<{
   (e: 'open', item: MediaItem): void
   (e: 'load-more'): void
 }>()
+
+// 媒体预加载器
+const { preloadAdjacentMedia } = useMediaPreloader({
+  range: 2,
+  enableImages: true,
+  enableVideos: true
+})
+
+// 性能监控
+const { startTiming } = usePerformanceMonitor()
 
 const item = computed<MediaItem | undefined>(() => props.items[props.index])
 
@@ -411,6 +423,10 @@ watch(
   (v) => {
     if (v) {
       window.addEventListener('keydown', onKey)
+      // 预览打开时预加载相邻媒体
+      if (props.items.length > 0) {
+        preloadAdjacentMedia(props.index, props.items, props.dialogType)
+      }
     } else {
       window.removeEventListener('keydown', onKey)
       // 关闭预览立即停流（组件仅 v-if 隐藏，不会自行卸载字节流）
@@ -438,6 +454,11 @@ watch(
     teardownVideo()
     resetVideoState()
     resetView()
+    
+    // 预加载相邻媒体
+    if (props.visible && props.items.length > 0) {
+      preloadAdjacentMedia(props.index, props.items, props.dialogType)
+    }
   },
 )
 </script>

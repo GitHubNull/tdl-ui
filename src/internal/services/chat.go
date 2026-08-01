@@ -146,6 +146,12 @@ type ChatService struct {
 	videoDisk *videoDiskCache
 	// 后台顺序预取控制器（单活跃视频）
 	prefetch videoPrefetcher
+	// 缩略图批量预加载器
+	thumbPreloader *ThumbPreloader
+	// 智能缓存预热器
+	cacheWarmer *SmartCacheWarmer
+	// 分层缓存架构
+	tieredCache *TieredCache
 
 	// runClient 建连并驱动任务循环，可注入以便测试；为 nil 时使用真实 Telegram 客户端。
 	runClient func(ctx context.Context, ready chan<- error, jobs, thumbJobs, videoJobs <-chan chatJob)
@@ -153,13 +159,23 @@ type ChatService struct {
 
 // NewChatService 创建对话服务。
 func NewChatService(cfg *config.Manager, kvs kv.Storage) *ChatService {
-	return &ChatService{
+	service := &ChatService{
 		cfg:       cfg,
 		kv:        kvs,
 		thumbs:    newThumbCache(func() string { return cfg.CacheDir() }),
 		videos:    newVideoCache(),
 		videoDisk: newVideoDiskCache(func() string { return cfg.TempDir() }),
 	}
+	// 初始化缩略图预加载器
+	service.thumbPreloader = NewThumbPreloader(service)
+	// 初始化分层缓存架构
+	service.tieredCache = NewTieredCache(service.thumbs, func(key string) ([]byte, error) {
+		// 这里实现网络拉取逻辑，暂时返回错误
+		return nil, errors.New("网络拉取未实现")
+	})
+	// 初始化智能缓存预热器
+	service.cacheWarmer = NewSmartCacheWarmer(service, service.tieredCache)
+	return service
 }
 
 // ClearThumbCache 清空缩略图/预览图磁盘缓存、视频内存缓存与视频磁盘分段（设置页「清空缓存」入口，SVC-18）。
@@ -274,6 +290,102 @@ func (s *ChatService) ListMedia(q MediaQuery) (*MediaPage, error) {
 	}
 	logChat.Debugf("媒体查询完成: dialog=%d items=%d nextOffset=%d", q.DialogID, len(page.Items), page.NextOffset)
 	return page, nil
+}
+
+// ListMediaBatch 并发查询多个对话的媒体文件，提升批量加载性能。
+// 使用信号量限制并发数，避免触发 Telegram API 限制。
+func (s *ChatService) ListMediaBatch(queries []MediaQuery) ([]*MediaPage, error) {
+	if len(queries) == 0 {
+		return []*MediaPage{}, nil
+	}
+
+	const maxConcurrent = 3 // 限制并发数避免API限制
+	semaphore := make(chan struct{}, maxConcurrent)
+	results := make([]*MediaPage, len(queries))
+	errors := make([]error, len(queries))
+
+	var wg sync.WaitGroup
+	for i, q := range queries {
+		wg.Add(1)
+		go func(idx int, query MediaQuery) {
+			defer wg.Done()
+			semaphore <- struct{}{} // 获取信号量
+			defer func() { <-semaphore }()
+
+			page, err := s.ListMedia(query)
+			results[idx] = page
+			errors[idx] = err
+		}(i, q)
+	}
+	wg.Wait()
+
+	// 返回第一个错误（如果有）
+	for _, err := range errors {
+		if err != nil {
+			return nil, err
+		}
+	}
+	return results, nil
+}
+
+// PreloadThumbs 预加载指定消息的缩略图（异步执行，不阻塞主流程）
+func (s *ChatService) PreloadThumbs(dialogID int64, dialogType string, messageIDs []int) {
+	if s.thumbPreloader != nil {
+		s.thumbPreloader.PreloadThumbs(dialogID, dialogType, messageIDs)
+	}
+}
+
+// PreloadVisibleThumbs 预加载可见区域的缩略图（智能预加载）
+func (s *ChatService) PreloadVisibleThumbs(dialogID int64, dialogType string, items []MediaItem, startIdx, endIdx int) {
+	if s.thumbPreloader != nil {
+		s.thumbPreloader.PreloadVisibleThumbs(dialogID, dialogType, items, startIdx, endIdx)
+	}
+}
+
+// GetThumbPreloadStats 获取缩略图预加载统计信息
+func (s *ChatService) GetThumbPreloadStats() PreloadStats {
+	if s.thumbPreloader != nil {
+		return s.thumbPreloader.GetStats()
+	}
+	return PreloadStats{}
+}
+
+// WarmupCache 为指定对话预热缓存
+func (s *ChatService) WarmupCache(dialogID int64, dialogType string, visibleItems []MediaItem) {
+	if s.cacheWarmer != nil {
+		s.cacheWarmer.WarmupForDialog(dialogID, dialogType, visibleItems)
+	}
+}
+
+// GetCacheStats 获取缓存统计信息
+func (s *ChatService) GetCacheStats() CacheStats {
+	if s.tieredCache != nil {
+		return s.tieredCache.GetStats()
+	}
+	return CacheStats{}
+}
+
+// GetCacheHitRate 获取缓存命中率
+func (s *ChatService) GetCacheHitRate() float64 {
+	if s.tieredCache != nil {
+		return s.tieredCache.GetHitRate()
+	}
+	return 0
+}
+
+// SetPreloadEnabled 设置是否启用智能预加载
+func (s *ChatService) SetPreloadEnabled(enabled bool) {
+	if s.cacheWarmer != nil {
+		s.cacheWarmer.SetPreloadEnabled(enabled)
+	}
+}
+
+// IsPreloadEnabled 检查是否启用智能预加载
+func (s *ChatService) IsPreloadEnabled() bool {
+	if s.cacheWarmer != nil {
+		return s.cacheWarmer.IsPreloadEnabled()
+	}
+	return false
 }
 
 // ---- 常驻客户端执行器 ----
@@ -1061,4 +1173,18 @@ func contains(list []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// ReportPerformance 接收前端性能指标报告（Wails 绑定方法）
+func (s *ChatService) ReportPerformance(label string, duration float64) {
+	// 记录性能指标到日志
+	logChat.Infof("性能指标: %s = %.2fms", label, duration)
+	
+	// 可以在这里添加更多的性能数据处理和存储逻辑
+	// 例如：写入数据库、发送到监控系统、触发性能告警等
+	
+	// 简单的性能告警：如果某个操作耗时过长，记录警告
+	if duration > 5000 { // 超过5秒
+		logChat.Warnf("性能警告: %s 耗时过长 (%.2fms)", label, duration)
+	}
 }

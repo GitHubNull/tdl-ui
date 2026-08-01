@@ -74,7 +74,18 @@ export const SettingsApi = {
 export const Chat = {
   listDialogs: ChatService.ListDialogs,
   listMedia: ChatService.ListMedia,
+  listMediaBatch: ChatService.ListMediaBatch,
   stopVideoPrefetch: ChatService.StopVideoPrefetch,
+  // 性能优化相关 API
+  preloadThumbs: ChatService.PreloadThumbs,
+  preloadVisibleThumbs: ChatService.PreloadVisibleThumbs,
+  getThumbPreloadStats: ChatService.GetThumbPreloadStats,
+  warmupCache: ChatService.WarmupCache,
+  getCacheStats: ChatService.GetCacheStats,
+  getCacheHitRate: ChatService.GetCacheHitRate,
+  setPreloadEnabled: ChatService.SetPreloadEnabled,
+  isPreloadEnabled: ChatService.IsPreloadEnabled,
+  reportPerformance: ChatService.ReportPerformance,
 }
 
 // ---- LogService ----

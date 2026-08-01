@@ -1,6 +1,22 @@
 # Changelog
 
-## [0.16.0] - 2026-08-01 04:22:26
+## [0.17.0] - 2026-08-01 11:02:53
+
+### Added
+- **虚拟滚动组件 `VirtualScroll.vue`**：替代原生 DOM 全量渲染，仅渲染可视区域内的媒体项，大幅降低 DOM 节点数与内存占用。
+- **媒体智能预加载系统**：新增 `useMediaPreloader.ts`（前端预加载编排）与 `thumb_preloader.go`（后端缩略图批量预取），在用户浏览媒体列表时提前加载相邻缩略图，消除滚动白块。
+- **智能图片加载器 `useSmartImageLoader.ts`**：基于 IntersectionObserver 的懒加载与视口优先级调度，进入视口才发起缩略图请求，减少首屏带宽竞争。
+- **分层缓存系统 `tiered_cache.go`**：L1 内存 LRU + L2 磁盘缓存，支持命中率统计、容量管理，新增 `ChatService` Wails 绑定（`WarmupCache`/`GetCacheStats`/`GetCacheHitRate`）。
+- **智能缓存预热 `smart_cache_warmer.go`**：根据用户浏览行为预测并预加载热点对话的缩略图到分层缓存，支持开关控制（`SetPreloadEnabled`/`IsPreloadEnabled`）。
+- **性能监控与验证工具**：新增 `performance.ts`（前端性能计时、标记、指标上报）与 `performanceValidator.ts`（性能基准验证），后端 `ReportPerformance` 绑定接收前端指标并写入结构化日志。
+- **性能基准测试工具**：新增 `src/cmd/performance-benchmark/` 命令行工具与 `performance_suite.go`/`performance_test.go` 后端性能测试套件。
+- **数据库索引优化（schemaVersion 4→5）**：新增 5 个复合覆盖索引（`idx_files_task_state`/`idx_task_items_dialog`/`idx_files_dialog_covering` 等），优化大量数据下的媒体查询与任务文件查询性能。
+- **性能优化文档**：新增 `doc/performance-optimization-summary.md`（优化摘要）与 `doc/performance-optimization-completion-report.md`（完成报告）。
+
+### Changed
+- `ChatsPage.vue` 大规模重构：集成 VirtualScroll 虚拟滚动、媒体预加载、智能图片加载、性能监控四套系统，244 行增量。
+- `MediaPreview.vue` 集成媒体预加载器与性能监控，预览时自动预加载相邻媒体。
+- `api.ts` 新增 11 个性能优化相关 Wails 绑定方法导出。
 
 ### Added
 - **日志行数上限可配置**：新增 `maxLogLines` 配置项（`config.yaml` → `ui.maxLogLines`），将日志环形缓冲区容量从硬编码 5000 行改为用户可配置（16–1024，默认 128），设置页「界面」段 `InputNumber` 控制，即时生效。

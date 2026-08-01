@@ -55,7 +55,89 @@
           />
 
           <div class="media-body">
-            <div ref="scrollEl" class="media-scroll">
+            <!-- 虚拟滚动模式（大量数据时启用） -->
+            <VirtualScroll
+              v-if="useVirtualScroll"
+              ref="virtualScrollRef"
+              :items="flatMediaItems"
+              :item-height="virtualScrollItemHeight"
+              :container-height="virtualScrollContainerHeight"
+              :has-more="hasMore"
+              :loading="loading"
+              :get-item-key="(item: MediaItem) => item.messageId"
+              @load-more="loadMore"
+              @scroll="onVirtualScroll"
+              class="media-scroll"
+            >
+              <template #default="{ item, index }">
+                <div class="virtual-media-item">
+                  <div
+                    class="media-card"
+                    :class="{ selected: selectedMsgs.has(item.messageId) }"
+                    :style="cardStyle(item)"
+                    @click="toggleSelect(item)"
+                    @dblclick="onCardDblClick(item)"
+                  >
+                    <div class="thumb" @click.stop="onThumbClick(item)" @dblclick.stop>
+                      <img
+                        v-if="hasThumb(item)"
+                        :data-src="thumbURL(item.dialogId, selectedType, item.messageId)"
+                        :style="item.thumb ? { backgroundImage: `url(${item.thumb})` } : undefined"
+                        class="smart-lazy-image"
+                        alt=""
+                        draggable="false"
+                        @error="thumbFailed.add(itemKey(item))"
+                        @load="onImageLoad"
+                        :ref="(el) => el && observeImage(el as HTMLImageElement)"
+                      />
+                      <i v-else :class="kindIcon(item.kind)" class="thumb-icon" />
+                      <i
+                        v-if="item.kind === 'video' && hasThumb(item)"
+                        class="pi pi-play-circle play-badge"
+                        v-tooltip.top="'单击播放预览'"
+                      />
+
+                      <Checkbox
+                        class="card-check"
+                        :model-value="selectedMsgs.has(item.messageId)"
+                        binary
+                        @click.stop
+                        @update:model-value="() => toggleSelect(item)"
+                      />
+                      <Button
+                        class="card-dl"
+                        icon="pi pi-download"
+                        size="small"
+                        rounded
+                        v-tooltip.top="'下载此文件'"
+                        @click.stop="downloadOne(item)"
+                      />
+
+                      <span v-if="fileStateOf(item)" class="dl-state" :class="fileStateOf(item)!.state">
+                        <i v-if="fileStateOf(item)!.state === 'downloading'" class="pi pi-spin pi-spinner" />
+                        <i v-else-if="fileStateOf(item)!.state === 'done'" class="pi pi-check" />
+                        <i v-else class="pi pi-times" />
+                        <template v-if="fileStateOf(item)!.state === 'downloading'">下载中 {{ fileStateOf(item)!.pct }}%</template>
+                      </span>
+                      <span
+                        v-else-if="downloadedMap.has(item.messageId)"
+                        class="dl-state done"
+                        v-tooltip.top="'已下载，双击打开'"
+                      >
+                        <i class="pi pi-check" /> 已下载
+                      </span>
+                    </div>
+                    <div class="card-info">
+                      <span class="card-name" :title="item.name">{{ item.name }}</span>
+                      <span class="card-meta">{{ fmtSize(item.size) }} · {{ extOf(item.name) }} · {{ fmtDate(item.date) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </VirtualScroll>
+
+            <!-- 传统滚动模式（少量数据或时间线布局） -->
+            <div v-else ref="scrollEl" class="media-scroll">
               <section
                 v-for="g in displayGroups"
                 :key="g.key"
@@ -76,12 +158,14 @@
                     <div class="thumb" @click.stop="onThumbClick(item)" @dblclick.stop>
                       <img
                         v-if="hasThumb(item)"
-                        :src="thumbURL(item.dialogId, selectedType, item.messageId)"
+                        :data-src="thumbURL(item.dialogId, selectedType, item.messageId)"
                         :style="item.thumb ? { backgroundImage: `url(${item.thumb})` } : undefined"
-                        loading="lazy"
+                        class="smart-lazy-image"
                         alt=""
                         draggable="false"
                         @error="thumbFailed.add(itemKey(item))"
+                        @load="onImageLoad"
+                        :ref="(el) => el && observeImage(el as HTMLImageElement)"
                       />
                       <i v-else :class="kindIcon(item.kind)" class="thumb-icon" />
                       <i
@@ -147,7 +231,7 @@
             </div>
 
             <!-- 月份索引条（已加载月份锚点） -->
-            <nav v-if="layout === 'timeline' && monthGroups.length" class="month-rail">
+            <nav v-if="layout === 'timeline' && monthGroups.length && !useVirtualScroll" class="month-rail">
               <button
                 v-for="g in monthGroups"
                 :key="g.key"
@@ -195,10 +279,13 @@ import DialogListPanel from '../components/DialogListPanel.vue'
 import MediaPreview from '../components/MediaPreview.vue'
 import MediaToolbar from '../components/MediaToolbar.vue'
 import NewTaskDialog from '../components/NewTaskDialog.vue'
+import VirtualScroll from '../components/VirtualScroll.vue'
 import { EVENT_TASK_FILE, on, thumbURL, Download } from '../api'
 import type { DialogView, FileEvent, MediaItem } from '../types'
 import { useMediaPager, type AppliedFilters } from '../composables/useMediaPager'
 import { useWaterfall, gridVars, type MediaLayout } from '../composables/useWaterfall'
+import { useSmartImageLoader } from '../composables/useSmartImageLoader'
+import { usePerformanceMonitor } from '../utils/performance'
 import { extOf, fmtDate, fmtSize, kindIcon, pad, typeLabel, typeSeverity } from '../utils/format'
 import { useAuthStore } from '../stores/auth'
 import { useChatsStore } from '../stores/chats'
@@ -211,6 +298,17 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const confirm = useConfirm()
+
+// 智能图片懒加载
+const { observe: observeImage, preloadImages } = useSmartImageLoader({
+  rootMargin: '100px',
+  threshold: 0.1,
+  enableCache: true,
+  maxRetries: 2
+})
+
+// 性能监控
+const { startTiming } = usePerformanceMonitor()
 
 // ---- 对话选中 ----
 
@@ -287,6 +385,16 @@ function applyFilters(f: AppliedFilters) {
   pagerApplyFilters(f)
 }
 
+// 监听媒体项变化，触发预加载
+watch(items, (newItems) => {
+  if (newItems.length > 0) {
+    // 延迟预加载，避免阻塞渲染
+    nextTick(() => {
+      preloadVisibleThumbs()
+    })
+  }
+}, { flush: 'post' })
+
 // ---- 无限滚动哨兵 ----
 
 /** 哨兵提前触发距离：距可视区 600px 即开始预加载下一页 */
@@ -343,6 +451,49 @@ const displayGroups = computed<MonthGroup[]>(() =>
   layout.value === 'timeline' ? monthGroups.value : [{ key: 'all', label: '', items: items.value }],
 )
 
+// ---- 虚拟滚动配置 ----
+
+/** 虚拟滚动启用阈值：超过此数量的媒体项时启用虚拟滚动 */
+const VIRTUAL_SCROLL_THRESHOLD = 200
+
+/** 是否启用虚拟滚动（仅在网格布局且数据量大时启用） */
+const useVirtualScroll = computed(() => 
+  layout.value === 'grid' && items.value.length > VIRTUAL_SCROLL_THRESHOLD
+)
+
+/** 扁平化的媒体项列表（虚拟滚动使用） */
+const flatMediaItems = computed(() => items.value)
+
+/** 虚拟滚动项高度（根据布局动态计算） */
+const virtualScrollItemHeight = computed(() => {
+  switch (layout.value) {
+    case 'grid': return 280 // 网格布局估算高度
+    case 'waterfall': return 320 // 瀑布流估算高度
+    case 'timeline': return 400 // 时间线布局估算高度
+    default: return 280
+  }
+})
+
+/** 虚拟滚动容器高度 */
+const virtualScrollContainerHeight = ref(600)
+
+/** VirtualScroll 组件引用 */
+const virtualScrollRef = ref<any>()
+
+/** 虚拟滚动事件处理 */
+function onVirtualScroll(scrollTop: number) {
+  // 可以在这里添加滚动位置记录、性能监控等逻辑
+  // 目前 VirtualScroll 组件内部已处理加载更多触发
+}
+
+// 监听容器大小变化，动态调整虚拟滚动容器高度
+function updateVirtualScrollContainerHeight() {
+  if (scrollEl.value) {
+    const rect = scrollEl.value.getBoundingClientRect()
+    virtualScrollContainerHeight.value = Math.max(400, rect.height)
+  }
+}
+
 const monthEls = new Map<string, HTMLElement>()
 
 function registerMonth(key: string, el: unknown) {
@@ -371,6 +522,33 @@ function itemKey(it: MediaItem) {
 function hasThumb(it: MediaItem) {
   if (thumbFailed.has(itemKey(it))) return false
   return it.kind === 'photo' || it.kind === 'video' || !!it.thumb
+}
+
+// 图片加载完成处理
+function onImageLoad(event: Event) {
+  const img = event.target as HTMLImageElement
+  img.classList.add('loaded')
+}
+
+// 预加载可见区域的缩略图
+function preloadVisibleThumbs() {
+  if (!items.value.length || !selectedId.value) return
+  
+  const endTiming = startTiming('preload-visible-thumbs')
+  
+  // 预加载前20个缩略图
+  const visibleItems = items.value.slice(0, 20)
+  const thumbUrls = visibleItems
+    .filter(item => hasThumb(item))
+    .map(item => thumbURL(item.dialogId, selectedType.value, item.messageId))
+  
+  if (thumbUrls.length > 0) {
+    preloadImages(thumbUrls).finally(() => {
+      endTiming()
+    })
+  } else {
+    endTiming()
+  }
 }
 
 // ---- Lightbox 预览 ----
@@ -597,6 +775,12 @@ onMounted(() => {
   )
   if (sentinel.value) sentinelObserver.observe(sentinel.value)
 
+  // 初始化虚拟滚动容器高度
+  updateVirtualScrollContainerHeight()
+  
+  // 监听窗口大小变化，动态调整容器高度
+  window.addEventListener('resize', updateVirtualScrollContainerHeight)
+
   offTaskFile = on<FileEvent>(EVENT_TASK_FILE, (ev) => {
     if (!ev.dialogId || !ev.messageId) return
     const key = `${ev.dialogId}:${ev.messageId}`
@@ -644,6 +828,9 @@ onBeforeUnmount(() => {
   sentinelObserver?.disconnect()
   offTaskFile?.()
   resetThumbClick()
+  
+  // 清理窗口大小变化监听器
+  window.removeEventListener('resize', updateVirtualScrollContainerHeight)
 })
 
 // 登出后清空选中与媒体（对话列表由 DialogListPanel 负责）
@@ -873,6 +1060,55 @@ watch(
   /* 内嵌模糊图作背景占位，HTTP 清晰图加载完成后自然覆盖 */
   background-size: cover;
   background-position: center;
+  transition: opacity 0.2s ease;
+}
+
+/* 智能懒加载样式 */
+.smart-lazy-image {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.smart-lazy-image.loaded {
+  opacity: 1;
+}
+
+.smart-lazy-image.error {
+  opacity: 0.5;
+  filter: grayscale(100%);
+}
+
+/* 虚拟滚动样式 */
+.virtual-media-item {
+  padding: 8px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.virtual-media-item .media-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.virtual-media-item .thumb {
+  flex: 1;
+  min-height: 0;
+}
+
+.virtual-media-item .card-info {
+  flex-shrink: 0;
+  padding: 8px;
+}
+
+/* 虚拟滚动容器样式 */
+:deep(.virtual-scroll-container) {
+  border-radius: 8px;
+}
+
+:deep(.virtual-scroll-item) {
+  box-sizing: border-box;
 }
 
 .thumb-icon {

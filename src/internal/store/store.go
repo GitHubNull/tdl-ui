@@ -23,7 +23,7 @@ var logStore = logging.L("store")
 var ErrStoreClosed = errors.New("存储已关闭")
 
 // schemaVersion 当前数据库结构版本，配合 PRAGMA user_version 做手写迁移。
-const schemaVersion = 4
+const schemaVersion = 5
 
 // Store 封装单个 SQLite 连接（单进程单连接池，配合 WAL + busy_timeout 规避 Windows 锁竞争）。
 type Store struct {
@@ -154,6 +154,11 @@ func (s *Store) migrate() error {
 	if version < 4 {
 		if err := s.migrateV4(); err != nil {
 			return errors.Wrap(err, "迁移至 v4 失败")
+		}
+	}
+	if version < 5 {
+		if err := s.migrateV5(); err != nil {
+			return errors.Wrap(err, "迁移至 v5 失败")
 		}
 	}
 
@@ -325,6 +330,41 @@ func (s *Store) migrateV4() error {
 		return errors.Wrap(err, "创建 idx_files_dialog_msg 索引失败")
 	}
 	if _, err := tx.Exec("PRAGMA user_version = 4"); err != nil {
+		return errors.Wrap(err, "写入 user_version 失败")
+	}
+	return tx.Commit()
+}
+
+// migrateV5 媒体查询性能优化索引：
+// 为媒体查询添加复合索引，优化大量数据时的查询性能。
+func (s *Store) migrateV5() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// 媒体查询优化索引
+	indexes := []string{
+		// 文件表：按对话和消息 ID 的复合索引（已存在，确保存在）
+		`CREATE INDEX IF NOT EXISTS idx_files_dialog_message ON files(dialog_id, message_id)`,
+		// 文件表：按任务和状态的复合索引，优化任务文件查询
+		`CREATE INDEX IF NOT EXISTS idx_files_task_state ON files(task_id, state)`,
+		// 任务项表：按对话和类型的复合索引，优化媒体查询
+		`CREATE INDEX IF NOT EXISTS idx_task_items_dialog ON task_items(dialog_id, item_type)`,
+		// 文件表：覆盖索引，包含媒体查询常用字段
+		`CREATE INDEX IF NOT EXISTS idx_files_dialog_covering ON files(dialog_id, message_id, name, size, state)`,
+		// 文件表：按状态和创建时间的索引，优化下载状态查询
+		`CREATE INDEX IF NOT EXISTS idx_files_state_created ON files(state, created_at)`,
+	}
+
+	for _, stmt := range indexes {
+		if _, err := tx.Exec(stmt); err != nil {
+			return errors.Wrapf(err, "创建索引失败: %s", stmt)
+		}
+	}
+
+	if _, err := tx.Exec("PRAGMA user_version = 5"); err != nil {
 		return errors.Wrap(err, "写入 user_version 失败")
 	}
 	return tx.Commit()
