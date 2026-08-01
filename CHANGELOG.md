@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.0] - 2026-08-01 11:53:07
+
+### Added
+- **任务页单文件操作**：每个文件项新增四个操作按钮——重新下载（从断点移除并重置状态）、打开所在目录（系统文件管理器定位）、删除记录（仅移除数据库记录保留磁盘文件）、删除文件（同时删除磁盘文件）。支持对已完成/失败/已取消任务执行继续下载未完成文件。
+- **`RedownloadFile` 接口**：后端 engine/manager 层支持按 `taskID + filePath` 从断点中移除记录并重置文件状态为 downloading，自动重新启动终态任务。
+- **`DeleteFileRecord` 接口**：仅删除文件在数据库中的记录，不触碰磁盘文件。
+- **`DeleteFile` 接口**：删除单个磁盘文件并从任务文件列表中移除。
+- **`RevealFileInDir` 接口**：跨平台在系统文件管理器中打开目录并选中指定文件（Windows explorer /select, macOS open -R, Linux xdg-open 目录）。
+- **`ResumeTaskWithPending` 接口**：继续下载任务中所有未完成文件（断点续传），适用于部分文件下载失败后单独恢复剩余项的场景。
+- **`DeleteResumeKey` 存储方法**：`TaskRepo` 接口与 SQLite 实现新增按 key 删除单个断点记录的能力。
+
+### Changed
+- `TaskRepo` 接口新增 `DeleteResumeKey` 方法，`taskrepo_fake_test.go` 同步更新 mock 实现。
+
 ## [0.17.0] - 2026-08-01 11:02:53
 
 ### Added

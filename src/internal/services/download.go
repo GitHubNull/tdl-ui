@@ -198,3 +198,43 @@ func (s *DownloadService) OpenDownloadedFile(dialogID int64, messageID int) erro
 	}
 	return nil
 }
+
+// RedownloadFile 重新下载任务中的单个文件。
+func (s *DownloadService) RedownloadFile(taskID string, filePath string) error {
+	logDownload.Infof("重新下载文件: task=%s path=%s", taskID, filePath)
+	if err := s.manager.RedownloadFile(taskID, filePath); err != nil {
+		logDownload.Errorf("重新下载文件失败: task=%s path=%s err=%v", taskID, filePath, err)
+		return err
+	}
+	return nil
+}
+
+// DeleteFileRecord 删除单个文件记录（不删除磁盘文件）。
+func (s *DownloadService) DeleteFileRecord(taskID string, filePath string) error {
+	logDownload.Infof("删除文件记录: task=%s path=%s", taskID, filePath)
+	if err := s.manager.DeleteFileRecord(taskID, filePath); err != nil {
+		logDownload.Errorf("删除文件记录失败: task=%s path=%s err=%v", taskID, filePath, err)
+		return err
+	}
+	return nil
+}
+
+// RevealFileInDir 在系统文件管理器中打开目录并选中指定文件。
+func (s *DownloadService) RevealFileInDir(filePath string) error {
+	logDownload.Infof("定位文件: path=%s", filePath)
+	if err := revealFile(filePath); err != nil {
+		logDownload.Errorf("定位文件失败: path=%s err=%v", filePath, err)
+		return err
+	}
+	return nil
+}
+
+// ResumeTaskWithPending 恢复包含未完成文件的任务（继续下载未完成的部分）。
+func (s *DownloadService) ResumeTaskWithPending(id string) error {
+	logDownload.Infof("继续下载未完成文件: id=%s", id)
+	if err := s.manager.ResumeTaskWithPending(id); err != nil {
+		logDownload.Errorf("继续下载失败: id=%s err=%v", id, err)
+		return err
+	}
+	return nil
+}

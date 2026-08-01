@@ -45,6 +45,10 @@ export const Download = {
   selectDirectory: DownloadService.SelectDirectory,
   listDownloadedMessages: DownloadService.ListDownloadedMessages,
   openDownloadedFile: DownloadService.OpenDownloadedFile,
+  redownloadFile: DownloadService.RedownloadFile,
+  deleteFileRecord: DownloadService.DeleteFileRecord,
+  revealFile: DownloadService.RevealFileInDir,
+  resumeTaskWithPending: DownloadService.ResumeTaskWithPending,
 }
 
 // ---- ScriptService ----

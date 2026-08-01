@@ -89,5 +89,17 @@ export const useTasksStore = defineStore('tasks', {
     async openDir(id: string) {
       await Download.openTaskDir(id)
     },
+    async redownloadFile(taskId: string, filePath: string) {
+      await Download.redownloadFile(taskId, filePath)
+      await this.refresh()
+    },
+    async deleteFileRecord(taskId: string, filePath: string) {
+      await Download.deleteFileRecord(taskId, filePath)
+      await this.refresh()
+    },
+    async resumeTaskWithPending(id: string) {
+      await Download.resumeTaskWithPending(id)
+      await this.refresh()
+    },
   },
 })

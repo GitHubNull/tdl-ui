@@ -122,6 +122,13 @@ func (r *memRepo) DeleteResume(_ context.Context, taskID string) error {
 	return nil
 }
 
+func (r *memRepo) DeleteResumeKey(_ context.Context, taskID, key string) error {
+	if r.finished[taskID] != nil {
+		delete(r.finished[taskID], key)
+	}
+	return nil
+}
+
 // 编译期确认 *store.Store 满足 TaskRepo（main.go 装配零改动的保证）。
 var _ TaskRepo = (*store.Store)(nil)
 

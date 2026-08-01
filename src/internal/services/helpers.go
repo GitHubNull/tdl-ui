@@ -74,3 +74,40 @@ func openFile(path string) error {
 	go func() { _ = cmd.Wait() }()
 	return nil
 }
+
+// revealFile 在系统文件管理器中打开目录并选中指定文件（类似鼠标选中的效果）。
+func revealFile(path string) error {
+	if st, err := os.Stat(path); err != nil || st.IsDir() {
+		return errors.Errorf("文件不存在: %s", path)
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		// Windows: explorer /select,"filepath"
+		explorer := "explorer.exe"
+		if root := os.Getenv("SystemRoot"); root != "" {
+			explorer = filepath.Join(root, "explorer.exe")
+		}
+		// /select 参数需要紧跟逗号，然后是文件路径
+		cmd = exec.Command(explorer, "/select,", path)
+	case "darwin":
+		// macOS: open -R filepath (Reveal in Finder)
+		cmd = exec.Command("open", "-R", path)
+	default:
+		// Linux: 优先使用 nautilus，其次 dolphin，最后回退到打开目录
+		if _, err := exec.LookPath("nautilus"); err == nil {
+			cmd = exec.Command("nautilus", "--select", path)
+		} else if _, err := exec.LookPath("dolphin"); err == nil {
+			cmd = exec.Command("dolphin", "--select", path)
+		} else {
+			// 回退到打开所在目录
+			return openDirectory(filepath.Dir(path))
+		}
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// SVC-11：回收子进程，避免 Unix 系上遗留 zombie
+	go func() { _ = cmd.Wait() }()
+	return nil
+}

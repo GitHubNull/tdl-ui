@@ -67,3 +67,12 @@ func (s *Store) DeleteResume(ctx context.Context, taskID string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM resume_keys WHERE task_id=?`, taskID)
 	return err
 }
+
+// DeleteResumeKey 删除指定任务的单个断点 key（用于单个文件重新下载时移除其断点记录）。
+func (s *Store) DeleteResumeKey(ctx context.Context, taskID, key string) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM resume_keys WHERE task_id=? AND resume_key=?`, taskID, key)
+	return err
+}

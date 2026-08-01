@@ -65,6 +65,15 @@
           @click="onResume(t.id)"
         />
         <Button
+          v-if="hasPendingFiles(t) && (t.status === 'done' || t.status === 'failed' || t.status === 'canceled')"
+          icon="pi pi-forward"
+          severity="info"
+          text
+          rounded
+          v-tooltip.top="'继续下载未完成文件'"
+          @click="onResumeWithPending(t.id)"
+        />
+        <Button
           v-if="t.status === 'running' || t.status === 'queued' || t.status === 'paused'"
           icon="pi pi-times"
           severity="danger"
@@ -137,6 +146,45 @@
               :severity="fileStateSeverity(f.state)"
               class="state-tag"
             />
+            <div class="file-actions">
+              <Button
+                v-if="f.state === 'failed' || f.state === 'done'"
+                icon="pi pi-refresh"
+                severity="secondary"
+                text
+                rounded
+                size="small"
+                v-tooltip.top="'重新下载'"
+                @click="onRedownloadFile(t.id, f.path)"
+              />
+              <Button
+                icon="pi pi-folder-open"
+                severity="secondary"
+                text
+                rounded
+                size="small"
+                v-tooltip.top="'打开所在目录'"
+                @click="onRevealFile(f.path)"
+              />
+              <Button
+                icon="pi pi-times"
+                severity="secondary"
+                text
+                rounded
+                size="small"
+                v-tooltip.top="'删除记录'"
+                @click="onDeleteFileRecord(t.id, f.path)"
+              />
+              <Button
+                icon="pi pi-trash"
+                severity="danger"
+                text
+                rounded
+                size="small"
+                v-tooltip.top="'删除文件'"
+                @click="onDeleteFile(t.id, f.path)"
+              />
+            </div>
           </div>
           <div v-if="selectedPaths[t.id]?.length" class="files-actions">
             <Button
@@ -316,6 +364,78 @@ function onDeleteSelected(t: TaskView) {
   })
 }
 
+// 检查任务是否有未完成的文件（用于显示"继续下载"按钮）
+function hasPendingFiles(t: TaskView): boolean {
+  // 如果任务有失败计数，说明有未完成的文件
+  if (t.failed > 0) return true
+  // 如果任务已完成但文件列表中有未完成或失败的文件，也显示继续下载按钮
+  const files = fileLists[t.id]
+  if (!files) return false
+  return files.some((f) => f.state === 'downloading' || f.state === 'failed')
+}
+
+// 继续下载未完成文件
+async function onResumeWithPending(id: string) {
+  try {
+    await tasks.resumeTaskWithPending(id)
+    toast.add({ severity: 'success', summary: '已继续下载未完成文件', life: 3000 })
+  } catch (e) {
+    toast.add({ severity: 'error', summary: '继续下载失败', detail: String(e), life: 5000 })
+  }
+}
+
+// 重新下载单个文件
+async function onRedownloadFile(taskId: string, filePath: string) {
+  try {
+    await tasks.redownloadFile(taskId, filePath)
+    toast.add({ severity: 'success', summary: '已加入重新下载队列', life: 3000 })
+    // 刷新文件列表
+    fileLists[taskId] = (await Download.listTaskFiles(taskId)) ?? []
+  } catch (e) {
+    toast.add({ severity: 'error', summary: '重新下载失败', detail: String(e), life: 5000 })
+  }
+}
+
+// 打开文件所在目录并选中
+async function onRevealFile(filePath: string) {
+  try {
+    await Download.revealFile(filePath)
+  } catch (e) {
+    toast.add({ severity: 'error', summary: '打开目录失败', detail: String(e), life: 4000 })
+  }
+}
+
+// 删除文件记录（保留磁盘文件）
+async function onDeleteFileRecord(taskId: string, filePath: string) {
+  try {
+    await tasks.deleteFileRecord(taskId, filePath)
+    toast.add({ severity: 'success', summary: '已删除记录', life: 3000 })
+    fileLists[taskId] = (await Download.listTaskFiles(taskId)) ?? []
+  } catch (e) {
+    toast.add({ severity: 'error', summary: '删除记录失败', detail: String(e), life: 5000 })
+  }
+}
+
+// 删除文件（含磁盘文件）
+function onDeleteFile(taskId: string, filePath: string) {
+  confirm.require({
+    header: '删除文件',
+    message: '将删除该文件的磁盘副本与记录，且不可恢复。确定继续？',
+    icon: 'pi pi-exclamation-triangle',
+    acceptProps: { label: '删除', severity: 'danger' },
+    rejectProps: { label: '取消', severity: 'secondary', outlined: true },
+    accept: async () => {
+      try {
+        await tasks.deleteFiles(taskId, [filePath])
+        toast.add({ severity: 'success', summary: '已删除文件', life: 3000 })
+        fileLists[taskId] = (await Download.listTaskFiles(taskId)) ?? []
+      } catch (e) {
+        toast.add({ severity: 'error', summary: '删除失败', detail: String(e), life: 5000 })
+      }
+    },
+  })
+}
+
 const fileStateText: Record<string, string> = {
   downloading: '未完成',
   done: '已完成',
@@ -476,5 +596,20 @@ function taskPercent(t: TaskView) {
 
 .files-actions {
   margin-top: 8px;
+}
+
+.file-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.file-actions :deep(.p-button) {
+  width: 28px;
+  height: 28px;
+}
+
+.file-actions :deep(.p-button .p-button-icon) {
+  font-size: 12px;
 }
 </style>

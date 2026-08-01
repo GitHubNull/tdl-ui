@@ -43,6 +43,7 @@ type TaskRepo interface {
 	AddFinished(ctx context.Context, taskID, key string) error
 	SaveFinished(ctx context.Context, taskID string, finished map[string]struct{}) error
 	DeleteResume(ctx context.Context, taskID string) error
+	DeleteResumeKey(ctx context.Context, taskID, key string) error
 }
 
 // Deps 任务管理器依赖。
@@ -438,6 +439,172 @@ func (m *Manager) DeleteFiles(id string, paths []string) error {
 		}
 	}
 	return firstErr
+}
+
+// RedownloadFile 重新下载任务中的单个文件。
+// 从断点中移除该文件的记录，重置文件状态，并在必要时重新启动任务执行。
+func (m *Manager) RedownloadFile(taskID, filePath string) error {
+	t, err := m.get(taskID)
+	if err != nil {
+		return err
+	}
+
+	t.mu.Lock()
+	// 查找文件记录
+	var targetFile *TaskFile
+	for i := range t.files {
+		if t.files[i].Path == filePath {
+			targetFile = &t.files[i]
+			break
+		}
+	}
+	if targetFile == nil {
+		t.mu.Unlock()
+		return errors.New("文件不属于该任务")
+	}
+
+	// 从断点中移除（如果存在）
+	resumeKey := fmt.Sprintf("%d:%d", targetFile.DialogID, targetFile.MessageID)
+	if m.deps.Store != nil {
+		_ = m.deps.Store.DeleteResumeKey(context.Background(), taskID, resumeKey)
+	}
+
+	// 重置文件状态
+	targetFile.State = "downloading"
+	// 注意：不清空 Path，因为下载器会复用该路径进行断点续传或重新下载
+
+	// 如果任务处于终态，重置任务状态以便重新执行
+	needRestart := false
+	if t.status == StatusDone || t.status == StatusFailed || t.status == StatusCanceled {
+		t.status = StatusQueued
+		t.errMsg = ""
+		// 减少已完成计数（如果该文件之前是完成状态）
+		if targetFile.State == "done" && t.finished > 0 {
+			t.finished--
+		}
+		// 减少失败计数（如果该文件之前是失败状态）
+		if targetFile.State == "failed" && t.failed > 0 {
+			t.failed--
+		}
+		needRestart = true
+	}
+	t.mu.Unlock()
+
+	// 如果任务被重置为排队状态，启动执行
+	if needRestart {
+		t.emitUpdate()
+		go m.run(t)
+	}
+
+	return nil
+}
+
+// DeleteFileRecord 仅删除文件记录（保留磁盘文件）。
+func (m *Manager) DeleteFileRecord(taskID, filePath string) error {
+	t, err := m.get(taskID)
+	if err != nil {
+		return err
+	}
+
+	t.mu.Lock()
+	// 从内存列表移除
+	kept := t.files[:0]
+	found := false
+	for _, f := range t.files {
+		if f.Path == filePath {
+			found = true
+			continue
+		}
+		kept = append(kept, f)
+	}
+	t.files = kept
+	t.mu.Unlock()
+
+	if !found {
+		return errors.New("文件不属于该任务")
+	}
+
+	// 从数据库删除记录
+	if m.deps.Store != nil {
+		_ = m.deps.Store.DeleteFilesByPath(context.Background(), taskID, []string{filePath})
+	}
+
+	return nil
+}
+
+// ResumeTaskWithPending 恢复包含未完成文件的任务（继续下载未完成的部分）。
+// 与 Resume 不同，此方法专门用于处理部分文件已完成、部分未完成的情况。
+func (m *Manager) ResumeTaskWithPending(id string) error {
+	t, err := m.get(id)
+	if err != nil {
+		return err
+	}
+
+	t.mu.Lock()
+	if t.removed {
+		t.mu.Unlock()
+		return errors.Errorf("任务不存在: %s", id)
+	}
+
+	// 检查是否有未完成的文件
+	hasPending := false
+	for _, f := range t.files {
+		if f.State == "downloading" || f.State == "failed" {
+			hasPending = true
+			break
+		}
+	}
+	if !hasPending {
+		t.mu.Unlock()
+		return errors.New("任务没有未完成的文件")
+	}
+
+	// 重置失败文件的状态为 downloading，让它们重新下载
+	for i := range t.files {
+		if t.files[i].State == "failed" {
+			t.files[i].State = "downloading"
+			// 从断点中移除失败文件的记录
+			resumeKey := fmt.Sprintf("%d:%d", t.files[i].DialogID, t.files[i].MessageID)
+			if m.deps.Store != nil {
+				_ = m.deps.Store.DeleteResumeKey(context.Background(), id, resumeKey)
+			}
+		}
+	}
+
+	// 重置任务状态
+	switch t.status {
+	case StatusPaused, StatusFailed, StatusCanceled, StatusDone:
+		t.status = StatusQueued
+		t.errMsg = ""
+		t.failed = 0 // 重置失败计数
+		t.paused = false
+		t.opts.Restart = false // 断点续传
+	default:
+		t.mu.Unlock()
+		return errors.New("任务当前状态不支持继续下载")
+	}
+
+	// 重启后恢复的任务未携带脚本契约，按需补加载
+	if t.contracts == nil && t.opts.ScriptName != "" {
+		var c *script.Contracts
+		var err error
+		if t.scriptSrc != "" {
+			c, err = script.Load(t.scriptSrc)
+		} else {
+			c, err = m.deps.Scripts.LoadByName(t.opts.ScriptName)
+		}
+		if err != nil {
+			t.mu.Unlock()
+			return errors.Wrapf(err, "加载脚本 %q 失败", t.opts.ScriptName)
+		}
+		t.contracts = c
+	}
+	t.mu.Unlock()
+
+	logEngine.Infof("任务继续下载未完成文件: id=%s", id)
+	t.emitUpdate()
+	go m.run(t)
+	return nil
 }
 
 // DeleteAllFiles 停止全部任务，删除所有登记文件（含 .tmp 未完成文件），并清空全部记录。
