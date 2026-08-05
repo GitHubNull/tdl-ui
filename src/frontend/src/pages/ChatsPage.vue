@@ -77,6 +77,9 @@
                     :style="cardStyle(item)"
                     @click="toggleSelect(item)"
                     @dblclick="onCardDblClick(item)"
+                    @mouseenter="onCardMouseEnter(item, $event)"
+                    @mouseleave="onCardMouseLeave"
+                    @mousemove="onCardMouseMove"
                   >
                     <div class="thumb" @click.stop="onThumbClick(item)" @dblclick.stop>
                       <img
@@ -129,7 +132,20 @@
                     </div>
                     <div class="card-info">
                       <span class="card-name" :title="item.name">{{ item.name }}</span>
-                      <span class="card-meta">{{ fmtSize(item.size) }} · {{ extOf(item.name) }} · {{ fmtDate(item.date) }}</span>
+                      <div class="card-bottom">
+                        <span class="card-meta">{{ fmtSize(item.size) }} · {{ extOf(item.name) }} · {{ fmtDate(item.date) }}</span>
+                        <Button
+                          v-if="item.caption"
+                          icon="pi pi-info-circle"
+                          size="small"
+                          text
+                          rounded
+                          severity="secondary"
+                          class="card-detail-btn"
+                          v-tooltip.top="'查看消息文本'"
+                          @click.stop="showCaptionDetail(item)"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -154,6 +170,9 @@
                     :style="cardStyle(item)"
                     @click="toggleSelect(item)"
                     @dblclick="onCardDblClick(item)"
+                    @mouseenter="onCardMouseEnter(item, $event)"
+                    @mouseleave="onCardMouseLeave"
+                    @mousemove="onCardMouseMove"
                   >
                     <div class="thumb" @click.stop="onThumbClick(item)" @dblclick.stop>
                       <img
@@ -206,7 +225,20 @@
                     </div>
                     <div class="card-info">
                       <span class="card-name" :title="item.name">{{ item.name }}</span>
-                      <span class="card-meta">{{ fmtSize(item.size) }} · {{ extOf(item.name) }} · {{ fmtDate(item.date) }}</span>
+                      <div class="card-bottom">
+                        <span class="card-meta">{{ fmtSize(item.size) }} · {{ extOf(item.name) }} · {{ fmtDate(item.date) }}</span>
+                        <Button
+                          v-if="item.caption"
+                          icon="pi pi-info-circle"
+                          size="small"
+                          text
+                          rounded
+                          severity="secondary"
+                          class="card-detail-btn"
+                          v-tooltip.top="'查看消息文本'"
+                          @click.stop="showCaptionDetail(item)"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -260,6 +292,32 @@
       @open="openDownloaded"
       @load-more="loadMore"
     />
+
+    <!-- Caption 详情弹窗 -->
+    <Dialog
+      v-model:visible="captionDialogVisible"
+      modal
+      header="消息内容"
+      :style="{ width: '480px' }"
+      append-to="body"
+    >
+      <div class="caption-detail">{{ captionDialogText }}</div>
+      <template #footer>
+        <Button label="关闭" severity="secondary" text @click="captionDialogVisible = false" />
+        <Button label="复制" icon="pi pi-copy" @click="copyCaptionText" />
+      </template>
+    </Dialog>
+
+    <!-- 悬停 caption 预览：0.5 秒延迟后显示，跟随鼠标位置 -->
+    <Teleport to="body">
+      <div
+        v-if="hoverCaption"
+        class="caption-hover-tip"
+        :style="{ left: hoverPos.x + 'px', top: hoverPos.y + 'px' }"
+      >
+        {{ hoverCaption }}
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -275,6 +333,7 @@ import ConfirmDialog from 'primevue/confirmdialog'
 import Message from 'primevue/message'
 import Tag from 'primevue/tag'
 
+import Dialog from 'primevue/dialog'
 import DialogListPanel from '../components/DialogListPanel.vue'
 import MediaPreview from '../components/MediaPreview.vue'
 import MediaToolbar from '../components/MediaToolbar.vue'
@@ -563,6 +622,67 @@ function openPreview(it: MediaItem) {
   previewVisible.value = true
 }
 
+// ---- 悬停 caption 预览（0.5 秒延迟，类似电视平台预览效果） ----
+
+const HOVER_DELAY_MS = 500
+const hoverCaption = ref('')
+const hoverPos = ref({ x: 0, y: 0 })
+let hoverTimer: ReturnType<typeof setTimeout> | null = null
+let hoverMsgId = 0
+
+function onCardMouseEnter(it: MediaItem, e: MouseEvent) {
+  if (!it.caption) return
+  hoverMsgId = it.messageId
+  hoverPos.value = { x: e.clientX + 12, y: e.clientY + 12 }
+  if (hoverTimer) clearTimeout(hoverTimer)
+  hoverTimer = setTimeout(() => {
+    if (hoverMsgId === it.messageId) {
+      hoverCaption.value = it.caption
+    }
+  }, HOVER_DELAY_MS)
+}
+
+function onCardMouseMove(e: MouseEvent) {
+  if (hoverCaption.value) {
+    hoverPos.value = { x: e.clientX + 12, y: e.clientY + 12 }
+  }
+}
+
+function onCardMouseLeave() {
+  if (hoverTimer) {
+    clearTimeout(hoverTimer)
+    hoverTimer = null
+  }
+  hoverCaption.value = ''
+  hoverMsgId = 0
+}
+
+// ---- 卡片 caption 详情弹窗 ----
+
+const captionDialogVisible = ref(false)
+const captionDialogText = ref('')
+
+function showCaptionDetail(it: MediaItem) {
+  captionDialogText.value = it.caption
+  captionDialogVisible.value = true
+}
+
+async function copyCaptionText() {
+  const text = captionDialogText.value
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    ta.remove()
+  }
+  toast.add({ severity: 'success', summary: '已复制', detail: '消息文本已复制到剪贴板', life: 2000 })
+}
+
 // ---- 多选与下载 ----
 
 const selectedMsgs = ref(new Set<number>())
@@ -828,6 +948,7 @@ onBeforeUnmount(() => {
   sentinelObserver?.disconnect()
   offTaskFile?.()
   resetThumbClick()
+  onCardMouseLeave() // 清理悬停计时器与提示
   
   // 清理窗口大小变化监听器
   window.removeEventListener('resize', updateVirtualScrollContainerHeight)
@@ -839,6 +960,7 @@ watch(
   (v) => {
     if (!v) {
       resetThumbClick() // FUNC-001：登出即上下文失效，未决点击一并作废
+      onCardMouseLeave() // 清理悬停状态
       selectedId.value = null
       localStorage.removeItem(LAST_DIALOG_KEY)
     }
@@ -1198,6 +1320,20 @@ watch(
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.card-bottom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.card-detail-btn {
+  flex-shrink: 0;
+  width: 24px !important;
+  height: 24px !important;
 }
 
 .scroll-sentinel {
@@ -1222,5 +1358,51 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+</style>
+
+<!-- 悬停 caption 预览提示样式：Teleport 到 body，不能用 scoped -->
+<style>
+.caption-hover-tip {
+  position: fixed;
+  z-index: 1200;
+  max-width: 320px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 10px 14px;
+  background: var(--p-surface-0);
+  color: var(--p-text-color);
+  border: 1px solid var(--p-surface-200);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 15%);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  pointer-events: none;
+}
+
+.app-dark .caption-hover-tip {
+  background: var(--p-surface-900);
+  border-color: var(--p-surface-700);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 40%);
+}
+
+/* Caption 详情弹窗（Dialog append-to=body，不能用 scoped） */
+.caption-detail {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--p-surface-100);
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.7;
+  user-select: text;
+}
+
+.app-dark .caption-detail {
+  background: var(--p-surface-800);
 }
 </style>

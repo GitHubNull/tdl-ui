@@ -6,6 +6,7 @@
       :placeholder="placeholder"
       :size="size"
       :invalid="invalid"
+      :name="name"
       @update:model-value="model = $event ?? ''"
       @keyup.enter="emit('enter')"
     />
@@ -28,6 +29,7 @@ defineProps<{
   placeholder?: string
   size?: 'small' | 'large'
   invalid?: boolean
+  name?: string
 }>()
 
 const emit = defineEmits<{ enter: [] }>()

@@ -133,16 +133,41 @@
           <Button icon="pi pi-search-plus" text rounded severity="contrast" @click="zoomBy(0.25)" />
           <Button label="复位" size="small" text severity="contrast" @click="resetView" />
         </template>
+        <Button
+          v-if="item?.caption"
+          label="详情"
+          icon="pi pi-info-circle"
+          size="small"
+          v-tooltip.top="'查看消息文本'"
+          @click="captionDialogVisible = true"
+        />
         <span class="mp-pos">{{ index + 1 }} / {{ items.length }}{{ hasMore ? '+' : '' }}</span>
       </div>
     </div>
   </Teleport>
+
+  <!-- Caption 详情弹窗：展示完整消息文本，支持选择与复制 -->
+  <Dialog
+    v-model:visible="captionDialogVisible"
+    modal
+    header="消息内容"
+    :style="{ width: '480px' }"
+    append-to="body"
+  >
+    <div class="caption-detail">{{ item?.caption }}</div>
+    <template #footer>
+      <Button label="关闭" severity="secondary" text @click="captionDialogVisible = false" />
+      <Button label="复制" icon="pi pi-copy" @click="copyCaption" />
+    </template>
+  </Dialog>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import Button from 'primevue/button'
+import Dialog from 'primevue/dialog'
 import Tag from 'primevue/tag'
+import { useToast } from 'primevue/usetoast'
 
 import VideoPlayer from './VideoPlayer.vue'
 import { Chat, previewURL, localMediaURL, thumbURL, videoStreamURL } from '../api'
@@ -168,6 +193,29 @@ const emit = defineEmits<{
   (e: 'open', item: MediaItem): void
   (e: 'load-more'): void
 }>()
+
+const toast = useToast()
+
+// ---- Caption 详情弹窗 ----
+
+const captionDialogVisible = ref(false)
+
+async function copyCaption() {
+  const text = item.value?.caption
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    // 剪贴板 API 不可用时回退到临时 textarea
+    const ta = document.createElement('textarea')
+    ta.value = text
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    ta.remove()
+  }
+  toast.add({ severity: 'success', summary: '已复制', detail: '消息文本已复制到剪贴板', life: 2000 })
+}
 
 // 媒体预加载器
 const { preloadAdjacentMedia } = useMediaPreloader({
@@ -676,5 +724,25 @@ watch(
   .mp-pos {
     margin-left: 8px;
   }
+}
+</style>
+
+<!-- Caption 详情弹窗样式：Dialog append-to=body，不能用 scoped -->
+<style>
+.caption-detail {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--p-surface-100);
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.7;
+  user-select: text;
+}
+
+.app-dark .caption-detail {
+  background: var(--p-surface-800);
 }
 </style>

@@ -1,6 +1,6 @@
 <template>
   <div class="table-toolbar">
-    <SearchBox v-model="queryText" placeholder="搜索文件名或标题" class="search-input" @enter="apply" />
+    <SearchBox v-model="queryText" name="mediaQuery" placeholder="搜索文件名或标题" class="search-input" @enter="apply" />
     <MultiSelect
       v-model="kinds"
       :options="kindOptions"
@@ -11,10 +11,10 @@
       selected-items-label="{0} 类"
       class="w-140"
     />
-    <InputText v-model="extsText" placeholder="扩展名: mp4, jpg" class="w-140" @keyup.enter="apply" />
-    <InputNumber v-model="minMB" placeholder="最小 MB" :min="0" class="w-100" @keyup.enter="apply" />
+    <InputText v-model="extsText" name="exts" placeholder="扩展名: mp4, jpg" class="w-140" @keyup.enter="apply" />
+    <InputNumber v-model="minMB" name="minSize" placeholder="最小 MB" :min="0" class="w-100" @keyup.enter="apply" />
     <span class="sep">-</span>
-    <InputNumber v-model="maxMB" placeholder="最大 MB" :min="0" class="w-100" @keyup.enter="apply" />
+    <InputNumber v-model="maxMB" name="maxSize" placeholder="最大 MB" :min="0" class="w-100" @keyup.enter="apply" />
     <Button label="查询" icon="pi pi-filter" size="small" @click="apply" />
     <Button label="重置" icon="pi pi-filter-slash" size="small" severity="secondary" outlined @click="reset" />
     <span class="spacer-flex" />
@@ -22,6 +22,7 @@
       v-model="layout"
       :options="layoutOptions"
       option-value="value"
+      option-label="label"
       :allow-empty="false"
       size="small"
     >

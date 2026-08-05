@@ -11,7 +11,7 @@
   },
   "info": {
     "productName": "tdl UI",
-    "productVersion": "0.18.0",
+    "productVersion": "0.19.0",
     "copyright": "Copyright (c) 2026 tdl-ui contributors",
     "comments": "Telegram 下载工具 tdl 的桌面 GUI（AGPL-3.0）"
   }
