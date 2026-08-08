@@ -100,6 +100,70 @@ function replaceIconPlaceholders(html: string): string {
   })
 }
 
+// 安全加固：对最终 HTML 进行白名单校验，防止供应链投毒注入恶意标签/属性
+const ALLOWED_MD_TAGS = new Set([
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'p', 'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
+  'table', 'thead', 'tbody', 'tr', 'th', 'td',
+  'a', 'strong', 'em', 'del', 'hr', 'br',
+  'div', 'span', 'button',
+])
+const ALLOWED_MD_ATTRS = new Set([
+  'class', 'id', 'href', 'target', 'rel', 'type', 'aria-hidden',
+])
+const ALLOWED_MD_CLASSES = new Set([
+  'code-block', 'has-lines', 'code-toolbar', 'code-lang', 'code-copy',
+  'line-gutter', 'hljs', 'md-icon',
+])
+
+function sanitizeMarkdownHtml(html: string): string {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html')
+  const container = doc.body.firstChild as HTMLElement
+
+  function walk(node: Node): string {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return escapeHtml(node.textContent ?? '')
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return ''
+    }
+    const el = node as HTMLElement
+    const tag = el.tagName.toLowerCase()
+    if (!ALLOWED_MD_TAGS.has(tag)) {
+      return escapeHtml(el.textContent ?? '')
+    }
+    // 过滤属性白名单
+    const attrs: string[] = []
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase()
+      if (!ALLOWED_MD_ATTRS.has(name)) continue
+      let value = attr.value
+      // 链接安全：强制添加 rel="noopener noreferrer"，阻止 javascript: 伪协议
+      if (tag === 'a' && name === 'href') {
+        if (/^javascript:/i.test(value)) continue
+        attrs.push('rel="noopener noreferrer"')
+      }
+      // class 白名单校验
+      if (name === 'class') {
+        const classes = value.split(/\s+/).filter(c => ALLOWED_MD_CLASSES.has(c))
+        if (classes.length === 0) continue
+        value = classes.join(' ')
+      }
+      attrs.push(`${name}="${escapeHtml(value)}"`)
+    }
+    const inner = Array.from(el.childNodes).map(walk).join('')
+    const attrStr = attrs.length ? ' ' + attrs.join(' ') : ''
+    return `<${tag}${attrStr}>${inner}</${tag}>`
+  }
+
+  return Array.from(container.childNodes).map(walk).join('')
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
 /** 渲染 Markdown 为 HTML，同时为 h2/h3 注入锚点 id 并提取目录。 */
 export function renderMarkdown(source: string): RenderResult {
   const tokens = md.parse(source, {})
@@ -123,5 +187,5 @@ export function renderMarkdown(source: string): RenderResult {
     toc.push({ level: token.tag === 'h2' ? 2 : 3, text, id })
   }
 
-  return { html: replaceIconPlaceholders(md.renderer.render(tokens, md.options, {})), toc }
+  return { html: sanitizeMarkdownHtml(replaceIconPlaceholders(md.renderer.render(tokens, md.options, {}))), toc }
 }

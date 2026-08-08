@@ -133,9 +133,30 @@ export class PerformanceMonitor {
   }
 
   // 启用性能上报
+  // 安全限制：仅允许同源或本地回环地址，防止数据外泄到第三方
   static enableReporting(endpoint: string) {
+    if (!this.isAllowedEndpoint(endpoint)) {
+      console.warn('Performance reporting endpoint not allowed:', endpoint)
+      return
+    }
     this.reportingEnabled = true
     this.reportingEndpoint = endpoint
+  }
+
+  // 校验上报端点是否安全
+  private static isAllowedEndpoint(endpoint: string): boolean {
+    if (!endpoint) return false
+    try {
+      const url = new URL(endpoint, window.location.origin)
+      // 允许同源请求
+      if (url.origin === window.location.origin) return true
+      // 允许本地回环地址（开发调试）
+      if (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1') return true
+      // 其他情况一律拒绝
+      return false
+    } catch {
+      return false
+    }
   }
 
   // 禁用性能上报

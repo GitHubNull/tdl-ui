@@ -335,7 +335,7 @@ const rows = computed<Row[]>(() => {
       raw: line,
       html: parsed
         ? renderParts(m, parsed[1], parsed[2], parsed[3], `${parsed[4]} · ${parsed[5]}:${parsed[6]}`, parsed[7])
-        : `<span class="lg-msg">${mark(m, line)}</span>`,
+        : sanitizeLogHtml(`<span class="lg-msg">${mark(m, line)}</span>`),
     })
   }
   return out
@@ -352,7 +352,48 @@ function detectLevel(line: string): string {
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
+// 安全加固：对最终 HTML 进行白名单校验，仅允许特定标签和类名
+const ALLOWED_LOG_TAGS = new Set(['span', 'mark'])
+const ALLOWED_LOG_CLASSES = new Set([
+  'lg-time', 'lg-level', 'lg-module', 'lg-src', 'lg-msg',
+  'lv-debug', 'lv-info', 'lv-warn', 'lv-error'
+])
+
+function sanitizeLogHtml(html: string): string {
+  // 使用 DOMParser 在内存中解析并重建安全的 HTML
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html')
+  const container = doc.body.firstChild as HTMLElement
+  
+  function walk(node: Node): string {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return escapeHtml(node.textContent ?? '')
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return ''
+    }
+    const el = node as HTMLElement
+    const tag = el.tagName.toLowerCase()
+    if (!ALLOWED_LOG_TAGS.has(tag)) {
+      // 不允许的标签：转义其文本内容后返回
+      return escapeHtml(el.textContent ?? '')
+    }
+    // 校验类名白名单
+    const cls = el.className
+    if (cls && !ALLOWED_LOG_CLASSES.has(cls)) {
+      // 类名不在白名单：移除类名，保留标签和文本
+      const inner = Array.from(el.childNodes).map(walk).join('')
+      return `<${tag}>${inner}</${tag}>`
+    }
+    const inner = Array.from(el.childNodes).map(walk).join('')
+    const clsAttr = cls ? ` class="${cls}"` : ''
+    return `<${tag}${clsAttr}>${inner}</${tag}>`
+  }
+  
+  return Array.from(container.childNodes).map(walk).join('')
 }
 
 function mark(re: RegExp | null, s: string): string {
@@ -381,13 +422,14 @@ function renderParts(
   msg: string,
 ): string {
   const lv = level.toUpperCase()
-  return (
+  const raw = (
     `<span class="lg-time">${mark(re, time)}</span>` +
     `<span class="lg-level lv-${lv.toLowerCase()}">${mark(re, lv)}</span>` +
     `<span class="lg-module">${mark(re, module)}</span>` +
     `<span class="lg-src">${mark(re, src)}</span>` +
     `<span class="lg-msg">${mark(re, msg)}</span>`
   )
+  return sanitizeLogHtml(raw)
 }
 
 const gutterWidth = computed(() => {

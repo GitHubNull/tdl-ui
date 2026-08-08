@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.1] - 2026-08-09 00:39:35
+
+### Security
+- **日志页 HTML 白名单净化**：日志行渲染结果经 `sanitizeLogHtml` 白名单校验，仅允许 span/mark 标签及预定义类名（lg-time/lg-level/lv-* 等），`escapeHtml` 补充单引号转义，防止日志内容注入恶意标签与属性。
+- **Markdown 渲染 HTML 白名单净化**：`renderMarkdown` 输出经 `sanitizeMarkdownHtml` 标签/属性/类名三重白名单过滤，拦截 `javascript:` 伪协议链接并为 `<a>` 强制追加 `rel="noopener noreferrer"`，防止供应链投毒类 XSS 注入。
+- **外部链接协议校验**：`openExternal` 仅放行 http/https 协议，`javascript:` 等伪协议直接拦截；浏览器回退路径补加 `noreferrer`，杜绝新页面通过 `window.opener` 反向访问源页面。
+- **性能上报端点限制**：`PerformanceMonitor.enableReporting` 仅接受同源或本地回环地址（localhost/127.0.0.1/::1），其他端点一律拒绝并告警，防止性能指标数据外泄到第三方。
+
 ## [0.19.0] - 2026-08-05 22:17:51
 
 ### Added
