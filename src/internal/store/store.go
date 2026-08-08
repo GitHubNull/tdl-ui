@@ -23,7 +23,7 @@ var logStore = logging.L("store")
 var ErrStoreClosed = errors.New("存储已关闭")
 
 // schemaVersion 当前数据库结构版本，配合 PRAGMA user_version 做手写迁移。
-const schemaVersion = 5
+const schemaVersion = 6
 
 // Store 封装单个 SQLite 连接（单进程单连接池，配合 WAL + busy_timeout 规避 Windows 锁竞争）。
 type Store struct {
@@ -42,6 +42,7 @@ type Task struct {
 	// 避免脚本文件事后被编辑导致同一任务前后两截规则不一致）
 	ScriptSrc  string
 	Template   string
+	Renames    string // JSON 序列化的 map[int]string：messageId → 自定义文件名（不含扩展名）
 	RewriteExt bool
 	SkipSame   bool
 	GroupMedia bool
@@ -159,6 +160,11 @@ func (s *Store) migrate() error {
 	if version < 5 {
 		if err := s.migrateV5(); err != nil {
 			return errors.Wrap(err, "迁移至 v5 失败")
+		}
+	}
+	if version < 6 {
+		if err := s.migrateV6(); err != nil {
+			return errors.Wrap(err, "迁移至 v6 失败")
 		}
 	}
 
@@ -365,6 +371,24 @@ func (s *Store) migrateV5() error {
 	}
 
 	if _, err := tx.Exec("PRAGMA user_version = 5"); err != nil {
+		return errors.Wrap(err, "写入 user_version 失败")
+	}
+	return tx.Commit()
+}
+
+// migrateV6 tasks 表新增 renames 列：JSON 序列化的 messageId → 自定义文件名映射，
+// 支持用户在下载前手动重命名选集文件（区别于脚本自动重命名）。
+func (s *Store) migrateV6() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(`ALTER TABLE tasks ADD COLUMN renames TEXT NOT NULL DEFAULT ''`); err != nil {
+		return errors.Wrap(err, "新增 renames 列失败")
+	}
+	if _, err := tx.Exec("PRAGMA user_version = 6"); err != nil {
 		return errors.Wrap(err, "写入 user_version 失败")
 	}
 	return tx.Commit()

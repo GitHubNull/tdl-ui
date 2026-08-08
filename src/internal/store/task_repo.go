@@ -26,9 +26,9 @@ func (s *Store) InsertTask(ctx context.Context, t Task, items []Item) error {
 		t.CreatedAt = now
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks
-		(id, label, dir, script_name, script_src, template, rewrite_ext, skip_same, group_media, status, error, total, finished, failed, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		t.ID, t.Label, t.Dir, t.ScriptName, t.ScriptSrc, t.Template,
+		(id, label, dir, script_name, script_src, template, renames, rewrite_ext, skip_same, group_media, status, error, total, finished, failed, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		t.ID, t.Label, t.Dir, t.ScriptName, t.ScriptSrc, t.Template, t.Renames,
 		boolToInt(t.RewriteExt), boolToInt(t.SkipSame), boolToInt(t.GroupMedia),
 		t.Status, t.Error, t.Total, t.Finished, t.Failed, t.CreatedAt, now); err != nil {
 		return errors.Wrap(err, "插入任务失败")
@@ -99,7 +99,7 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 
 // LoadAllTasks 按创建顺序返回全部任务主表行。
 func (s *Store) LoadAllTasks(ctx context.Context) ([]Task, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, label, dir, script_name, script_src, template,
+	rows, err := s.db.QueryContext(ctx, `SELECT id, label, dir, script_name, script_src, template, renames,
 		rewrite_ext, skip_same, group_media, status, error, total, finished, failed, created_at, updated_at
 		FROM tasks ORDER BY created_at ASC, rowid ASC`)
 	if err != nil {
@@ -111,8 +111,8 @@ func (s *Store) LoadAllTasks(ctx context.Context) ([]Task, error) {
 	for rows.Next() {
 		var t Task
 		var rewrite, skip, group int
-		var label, script, src, tpl, errMsg sql.NullString
-		if err := rows.Scan(&t.ID, &label, &t.Dir, &script, &src, &tpl,
+		var label, script, src, tpl, renames, errMsg sql.NullString
+		if err := rows.Scan(&t.ID, &label, &t.Dir, &script, &src, &tpl, &renames,
 			&rewrite, &skip, &group, &t.Status, &errMsg,
 			&t.Total, &t.Finished, &t.Failed, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
@@ -121,6 +121,7 @@ func (s *Store) LoadAllTasks(ctx context.Context) ([]Task, error) {
 		t.ScriptName = script.String
 		t.ScriptSrc = src.String
 		t.Template = tpl.String
+		t.Renames = renames.String
 		t.Error = errMsg.String
 		t.RewriteExt = rewrite != 0
 		t.SkipSame = skip != 0

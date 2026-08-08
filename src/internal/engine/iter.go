@@ -55,6 +55,7 @@ type IterOptions struct {
 	Template   string
 	Group      bool
 	Contracts  *script.Contracts // 可选：过滤/命名脚本契约
+	Renames    map[int]string    // 可选：手动重命名映射（messageId → 自定义文件名，不含扩展名）
 	OnSkip     func(info scriptapi.FileInfo, reason string)
 	// OnTotalDecr 消息被跳过（无媒体/已删除/被过滤/同名同大小）时回调，
 	// 供消费方递减 total，避免任务 Done 后进度仍显示 12/20（ENG-06）。
@@ -208,9 +209,15 @@ func (i *iter) processSingle(ctx context.Context, message *tg.Message, from peer
 		return false, true
 	}
 
-	// 命名：优先脚本 Rename，出错或空串回退默认模板
+	// 命名：手动重命名 > 脚本 Rename > 默认模板
 	name := ""
-	if i.opts.Contracts.HasRename() {
+	// 1. 手动重命名（用户指定，最高优先级）
+	if customName, ok := i.opts.Renames[info.MessageID]; ok && customName != "" {
+		ext := filepath.Ext(info.FileName)
+		name = customName + ext
+	}
+	// 2. 脚本 Rename
+	if name == "" && i.opts.Contracts.HasRename() {
 		if n, err := i.opts.Contracts.SafeRename(info); err != nil {
 			i.notifySkip(info, fmt.Sprintf("命名脚本出错，回退默认模板: %v", err))
 		} else {

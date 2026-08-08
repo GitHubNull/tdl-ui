@@ -150,6 +150,7 @@ func (m *Manager) execute(ctx context.Context, t *Task) (rerr error) {
 			Template:   t.opts.Template,
 			Group:      t.opts.Group,
 			Contracts:  t.contracts,
+			Renames:    t.opts.Renames,
 			OnSkip: func(info scriptapi.FileInfo, reason string) {
 				m.deps.Emitter.Emit(events.ScriptLog,
 					fmt.Sprintf("[%s] %s: %s", t.ID, info.FileName, reason))

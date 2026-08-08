@@ -687,7 +687,14 @@ async function copyCaptionText() {
 
 const selectedMsgs = ref(new Set<number>())
 const dlVisible = ref(false)
-const dlSelection = ref<{ dialogId: number; dialogType: string; title: string; messageIds: number[] } | null>(null)
+const dlSelection = ref<{
+  dialogId: number
+  dialogType: string
+  title: string
+  messageIds: number[]
+  /** 选中媒体项的完整信息（用于重命名列表展示原始文件名） */
+  items: MediaItem[]
+} | null>(null)
 
 function toggleSelect(it: MediaItem) {
   const next = new Set(selectedMsgs.value)
@@ -709,11 +716,13 @@ function clearSelection() {
 
 function openDownload(messageIds: number[]) {
   if (!selectedId.value || !messageIds.length) return
+  const idSet = new Set(messageIds)
   dlSelection.value = {
     dialogId: selectedId.value,
     dialogType: selectedType.value,
     title: selectedTitle.value,
     messageIds,
+    items: items.value.filter((it) => idSet.has(it.messageId)),
   }
   dlVisible.value = true
 }

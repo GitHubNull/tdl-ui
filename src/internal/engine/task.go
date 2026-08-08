@@ -43,6 +43,9 @@ type TaskOptions struct {
 	SkipSame   bool        `json:"skipSame"`
 	Group      bool        `json:"group"`
 	Restart    bool        `json:"restart"`
+	// Renames 手动重命名映射：messageId → 自定义文件名（不含扩展名），
+	// 优先级高于脚本 Rename 与命名模板（FE-25）。
+	Renames map[int]string `json:"renames,omitempty"`
 }
 
 // TaskFile 任务内单个文件记录（下载中为 .tmp 临时路径，完成后为最终路径）。

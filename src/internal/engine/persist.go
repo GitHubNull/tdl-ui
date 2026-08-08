@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/go-faster/errors"
 
@@ -65,6 +66,7 @@ func (m *Manager) loadFromStore() {
 				RewriteExt: st.RewriteExt,
 				SkipSame:   st.SkipSame,
 				Group:      st.GroupMedia,
+				Renames:    unmarshalRenames(st.Renames),
 			},
 			mgr:       m,
 			scriptSrc: st.ScriptSrc,
@@ -127,6 +129,7 @@ func toStoreTask(t *Task) store.Task {
 		ScriptName: t.opts.ScriptName,
 		ScriptSrc:  t.scriptSrc,
 		Template:   t.opts.Template,
+		Renames:    marshalRenames(t.opts.Renames),
 		RewriteExt: t.opts.RewriteExt,
 		SkipSame:   t.opts.SkipSame,
 		GroupMedia: t.opts.Group,
@@ -137,6 +140,30 @@ func toStoreTask(t *Task) store.Task {
 		Failed:     t.failed,
 		CreatedAt:  t.CreatedAt,
 	}
+}
+
+// marshalRenames 将手动重命名映射序列化为 JSON 字符串（空映射返回空串）。
+func marshalRenames(m map[int]string) string {
+	if len(m) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// unmarshalRenames 将 JSON 字符串反序列化为手动重命名映射（空串/解析失败返回 nil）。
+func unmarshalRenames(s string) map[int]string {
+	if s == "" {
+		return nil
+	}
+	var m map[int]string
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return nil
+	}
+	return m
 }
 
 // storeFilesToTaskFiles 把文件表行转为内存文件记录。
