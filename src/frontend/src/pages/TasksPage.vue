@@ -32,10 +32,43 @@
       <p class="mt-8">点击右上角「添加下载」创建第一个任务</p>
     </div>
 
-    <div v-for="t in tasks.tasks" :key="t.id" class="task-card">
+    <template v-else>
+      <div class="filter-toolbar panel-card">
+        <SearchBox
+          v-model="query"
+          placeholder="搜索任务（标题/链接/目录/脚本）"
+          class="filter-search"
+          size="small"
+          :invalid="regexInvalid"
+        />
+        <Button
+          label=".*"
+          size="small"
+          :severity="useRegex ? 'primary' : 'secondary'"
+          :outlined="!useRegex"
+          v-tooltip.top="'正则表达式'"
+          @click="useRegex = !useRegex"
+        />
+        <Button
+          label="Aa"
+          size="small"
+          :severity="caseSensitive ? 'primary' : 'secondary'"
+          :outlined="!caseSensitive"
+          v-tooltip.top="'区分大小写'"
+          @click="caseSensitive = !caseSensitive"
+        />
+        <span class="match-count">{{ filteredTasks.length }} / {{ tasks.tasks.length }} 个任务</span>
+      </div>
+      <div v-if="regexInvalid" class="regex-error">正则表达式无效（已退化为不过滤）</div>
+      <div v-if="!filteredTasks.length" class="empty-state panel-card">
+        <p>没有匹配的任务</p>
+      </div>
+    </template>
+
+    <div v-for="t in filteredTasks" :key="t.id" class="task-card">
       <div class="row">
         <Tag :value="statusLabel(t.status)" :severity="statusSeverity(t.status)" />
-        <span class="title" :title="t.label || t.urls.join('\n')">{{ taskTitle(t) }}</span>
+        <span class="title" :title="t.label || (t.urls ?? []).join('\n')">{{ taskTitle(t) }}</span>
         <span class="meta">{{ t.finished }}/{{ t.total || '?' }} 个文件</span>
 
         <Button
@@ -146,7 +179,36 @@
         <div v-if="loadingFiles[t.id]" class="files-hint">加载中…</div>
         <template v-else>
           <div v-if="!fileLists[t.id]?.length" class="files-hint">无文件记录</div>
-          <div v-for="f in fileLists[t.id]" :key="f.path" class="task-file-row">
+          <template v-else>
+            <div v-if="(fileLists[t.id]?.length ?? 0) > 3" class="file-filter">
+              <SearchBox
+                v-model="fileQueries[t.id]"
+                placeholder="搜索文件名/路径"
+                class="grow"
+                size="small"
+                :invalid="fileRegexInvalid(t.id)"
+              />
+              <Button
+                label=".*"
+                size="small"
+                :severity="fileUseRegex[t.id] ? 'primary' : 'secondary'"
+                :outlined="!fileUseRegex[t.id]"
+                v-tooltip.top="'正则表达式'"
+                @click="fileUseRegex[t.id] = !fileUseRegex[t.id]"
+              />
+              <Button
+                label="Aa"
+                size="small"
+                :severity="fileCaseSensitive[t.id] ? 'primary' : 'secondary'"
+                :outlined="!fileCaseSensitive[t.id]"
+                v-tooltip.top="'区分大小写'"
+                @click="fileCaseSensitive[t.id] = !fileCaseSensitive[t.id]"
+              />
+            </div>
+            <div v-if="fileRegexInvalid(t.id)" class="regex-error">正则表达式无效（已退化为不过滤）</div>
+            <div v-if="!filteredFiles(t.id).length" class="files-hint">没有匹配的文件</div>
+          </template>
+          <div v-for="f in filteredFiles(t.id)" :key="f.path" class="task-file-row">
             <Checkbox v-model="selectedPaths[t.id]" :value="f.path" />
             <span class="name" :title="f.path">{{ f.name }}</span>
             <span class="size">{{ fmtSize(f.size) }}</span>
@@ -226,6 +288,7 @@ import ProgressBar from 'primevue/progressbar'
 import Tag from 'primevue/tag'
 
 import NewTaskDialog from '../components/NewTaskDialog.vue'
+import SearchBox from '../components/SearchBox.vue'
 import emptyTasks from '../assets/illustrations/empty-tasks.svg'
 import { Download } from '../api'
 import { fmtSize } from '../utils/format'
@@ -243,6 +306,79 @@ const loadingFiles = reactive<Record<string, boolean>>({})
 const fileLists = reactive<Record<string, TaskFile[]>>({})
 const selectedPaths = reactive<Record<string, string[]>>({})
 
+// 任务级搜索过滤状态
+const query = ref('')
+const useRegex = ref(false)
+const caseSensitive = ref(false)
+
+// 文件级搜索过滤状态（按任务 ID 独立）
+const fileQueries = reactive<Record<string, string>>({})
+const fileUseRegex = reactive<Record<string, boolean>>({})
+const fileCaseSensitive = reactive<Record<string, boolean>>({})
+
+// 通用匹配器工厂：返回 null 表示无过滤（空查询或非法正则降级）
+function buildMatcher(q: string, regex: boolean, cs: boolean): ((s: string) => boolean) | null {
+  const t = q.trim()
+  if (!t) return null
+  if (regex) {
+    try {
+      const re = new RegExp(t, cs ? '' : 'i')
+      return (s) => re.test(s)
+    } catch {
+      return null // 非法正则退化为不过滤
+    }
+  }
+  const needle = cs ? t : t.toLowerCase()
+  return (s) => (cs ? s : s.toLowerCase()).includes(needle)
+}
+
+// 正则是否非法（仅正则模式且非空查询时判定）
+function isRegexInvalid(q: string, regex: boolean): boolean {
+  const t = q.trim()
+  if (!regex || !t) return false
+  try {
+    new RegExp(t)
+    return false
+  } catch {
+    return true
+  }
+}
+
+const regexInvalid = computed(() => isRegexInvalid(query.value, useRegex.value))
+
+// taskTitle 需在 filteredTasks 之前定义，避免 setup 编译后引用未初始化绑定（TDZ）导致渲染抛错
+function taskTitle(t: TaskView) {
+  if (t.label) return t.label
+  const urls = t.urls ?? []
+  const first = urls[0] ?? ''
+  return urls.length > 1 ? `${first} 等 ${urls.length} 条链接` : first
+}
+
+function taskPercent(t: TaskView) {
+  if (t.status === 'done') return 100
+  if (!t.total) return 0
+  return Math.round(((t.finished + t.failed) / t.total) * 100)
+}
+
+const filteredTasks = computed(() => {
+  const m = buildMatcher(query.value, useRegex.value, caseSensitive.value)
+  if (!m) return tasks.tasks
+  return tasks.tasks.filter(
+    (t) => m(taskTitle(t)) || m((t.urls ?? []).join(' ')) || m(t.dir) || m(t.scriptName),
+  )
+})
+
+function filteredFiles(taskId: string): TaskFile[] {
+  const list = fileLists[taskId] ?? []
+  const m = buildMatcher(fileQueries[taskId] ?? '', fileUseRegex[taskId] ?? false, fileCaseSensitive[taskId] ?? false)
+  if (!m) return list
+  return list.filter((f) => m(f.name) || m(f.path))
+}
+
+function fileRegexInvalid(taskId: string): boolean {
+  return isRegexInvalid(fileQueries[taskId] ?? '', fileUseRegex[taskId] ?? false)
+}
+
 // FE-25：任务被移除或重新运行（离开终态）时清理展开/文件列表状态，避免缓慢累积与陈旧列表
 watch(
   () => tasks.tasks.map((t) => `${t.id}:${t.status}`),
@@ -254,6 +390,9 @@ watch(
         delete loadingFiles[key]
         delete fileLists[key]
         delete selectedPaths[key]
+        delete fileQueries[key]
+        delete fileUseRegex[key]
+        delete fileCaseSensitive[key]
       }
     }
   },
@@ -268,6 +407,10 @@ async function toggleFiles(t: TaskView) {
   }
   expanded[t.id] = true
   if (!selectedPaths[t.id]) selectedPaths[t.id] = []
+  // 初始化文件级搜索框绑定值，避免 SearchBox 的 modelValue 收到 undefined
+  if (fileQueries[t.id] === undefined) fileQueries[t.id] = ''
+  if (fileUseRegex[t.id] === undefined) fileUseRegex[t.id] = false
+  if (fileCaseSensitive[t.id] === undefined) fileCaseSensitive[t.id] = false
   loadingFiles[t.id] = true
   try {
     fileLists[t.id] = (await Download.listTaskFiles(t.id)) ?? []
@@ -504,23 +647,60 @@ function statusSeverity(s: string) {
 function isFinal(s: string) {
   return s === 'done' || s === 'failed' || s === 'canceled' || s === 'paused'
 }
-
-function taskTitle(t: TaskView) {
-  if (t.label) return t.label
-  const first = t.urls[0] ?? ''
-  return t.urls.length > 1 ? `${first} 等 ${t.urls.length} 条链接` : first
-}
-
-function taskPercent(t: TaskView) {
-  if (t.status === 'done') return 100
-  if (!t.total) return 0
-  return Math.round(((t.finished + t.failed) / t.total) * 100)
-}
 </script>
 
 <style scoped>
 .mt-8 {
   margin-top: 8px;
+}
+
+.filter-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.filter-toolbar .filter-search {
+  flex: 1;
+  min-width: 240px;
+}
+
+/* SearchBox 默认 inline-flex 宽度由内容决定，这里强制撑满并级联到内部输入框 */
+.filter-toolbar .filter-search,
+.filter-toolbar .filter-search :deep(.p-inputtext) {
+  width: 100%;
+}
+
+.match-count {
+  color: var(--p-text-muted-color);
+  font-size: 12px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.regex-error {
+  color: var(--p-red-500);
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.file-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 8px;
+}
+
+.file-filter .grow {
+  flex: 1;
+}
+
+/* 与任务级工具栏同理：强制 SearchBox 及其内部输入框撑满剩余宽度 */
+.file-filter .grow,
+.file-filter .grow :deep(.p-inputtext) {
+  width: 100%;
 }
 
 .header-row {
