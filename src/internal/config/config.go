@@ -52,10 +52,22 @@ func (u UISettings) withDefaults() UISettings {
 	return u
 }
 
+// 代理模式取值。
+const (
+	// ProxyModeSystem 使用系统代理（读取 HTTPS_PROXY/HTTP_PROXY/ALL_PROXY 环境变量）
+	ProxyModeSystem = "system"
+	// ProxyModeCustom 使用用户填写的自定义代理地址
+	ProxyModeCustom = "custom"
+	// ProxyModeOff 禁用代理，直连
+	ProxyModeOff = "off"
+)
+
 // Settings 应用全局设置（对前端与服务层暴露的扁平结构，仅保留 JSON 标签）。
 type Settings struct {
 	// Proxy 代理地址，如 socks5://127.0.0.1:1080 或 http://127.0.0.1:8080，空为直连
 	Proxy string `json:"proxy"`
+	// ProxyMode 代理模式：system=使用系统代理（默认）/ custom=自定义代理 / off=禁用代理
+	ProxyMode string `json:"proxyMode"`
 	// DownloadDir 默认下载目录
 	DownloadDir string `json:"downloadDir"`
 	// Template 默认文件命名模板（Go text/template，与 tdl 兼容）
@@ -128,6 +140,7 @@ type yamlConfig struct {
 	Log        logging.LogSettings `yaml:"log"`
 	Session    struct {
 		Proxy            string `yaml:"proxy"`
+		ProxyMode        string `yaml:"proxyMode"`
 		LoggedInUserID   int64  `yaml:"loggedInUserId"`
 		LoggedInUsername string `yaml:"loggedInUsername"`
 	} `yaml:"session"`
@@ -154,6 +167,7 @@ func settingsToYAML(s Settings) yamlConfig {
 	y.Scripts.TemplatesSeeded = s.TemplatesSeeded
 	y.Log = s.Log
 	y.Session.Proxy = s.Proxy
+	y.Session.ProxyMode = s.ProxyMode
 	y.Session.LoggedInUserID = s.LoggedInUserID
 	y.Session.LoggedInUsername = s.LoggedInUsername
 	y.RecentDirs = s.RecentDirs
@@ -161,8 +175,14 @@ func settingsToYAML(s Settings) yamlConfig {
 }
 
 func yamlToSettings(y yamlConfig) Settings {
+	proxyMode := y.Session.ProxyMode
+	// 旧配置迁移：无 proxyMode 字段但已填写自定义代理地址的，视为 custom（一次性推断，保存后固化）
+	if proxyMode == "" && y.Session.Proxy != "" {
+		proxyMode = ProxyModeCustom
+	}
 	return Settings{
 		Proxy:              y.Session.Proxy,
+		ProxyMode:          proxyMode,
 		DownloadDir:        y.Download.Dir,
 		Template:           y.Download.Template,
 		Threads:            y.Download.Threads,
@@ -239,6 +259,7 @@ func defaultSettings(dataDir string) Settings {
 	}
 	return Settings{
 		Proxy:       "",
+		ProxyMode:   ProxyModeSystem,
 		DownloadDir: downloadDir,
 		Template:    DefaultTemplate,
 		Threads:     4,
@@ -335,8 +356,22 @@ func (m *Manager) Update(s Settings) error {
 		}
 	}
 
-	// Proxy 预校验（SVC-14）：非法值在保存时即报错，而非等到建连时才以晦涩错误暴露。
-	if s.Proxy != "" {
+	// ProxyMode 归一化与校验：空值回退 system；非法值拒绝。
+	if s.ProxyMode == "" {
+		s.ProxyMode = ProxyModeSystem
+	}
+	switch s.ProxyMode {
+	case ProxyModeSystem, ProxyModeCustom, ProxyModeOff:
+	default:
+		return errors.Errorf("代理模式无效: %q（仅支持 system/custom/off）", s.ProxyMode)
+	}
+
+	// Proxy 预校验（SVC-14）：仅 custom 模式校验地址格式，非法值在保存时即报错，
+	// 而非等到建连时才以晦涩错误暴露；off/system 模式下保留已填地址但不生效。
+	if s.ProxyMode == ProxyModeCustom {
+		if s.Proxy == "" {
+			return errors.New("自定义代理模式下代理地址不能为空")
+		}
 		if err := validateProxy(s.Proxy); err != nil {
 			return err
 		}
@@ -360,6 +395,31 @@ func (m *Manager) Update(s Settings) error {
 	m.settings = s
 	m.mu.Unlock()
 	return m.save()
+}
+
+// systemProxyEnvKeys 系统代理模式依次探测的环境变量（首个非空值生效）。
+var systemProxyEnvKeys = []string{
+	"HTTPS_PROXY", "https_proxy",
+	"HTTP_PROXY", "http_proxy",
+	"ALL_PROXY", "all_proxy",
+}
+
+// EffectiveProxy 返回设置实际生效的代理地址；空串表示直连。
+// off → 直连；custom → 用户填写的地址；system → 代理环境变量。
+func EffectiveProxy(s Settings) string {
+	switch s.ProxyMode {
+	case ProxyModeOff:
+		return ""
+	case ProxyModeCustom:
+		return s.Proxy
+	default: // system 及空值（未迁移旧配置）按系统代理处理
+		for _, k := range systemProxyEnvKeys {
+			if v := os.Getenv(k); v != "" {
+				return v
+			}
+		}
+		return ""
+	}
 }
 
 // validateProxy 校验代理地址格式：scheme 白名单 + 非空主机名（SVC-14）。

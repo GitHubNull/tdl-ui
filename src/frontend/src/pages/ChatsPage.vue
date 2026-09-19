@@ -75,7 +75,7 @@
                     class="media-card"
                     :class="{ selected: selectedMsgs.has(item.messageId) }"
                     :style="cardStyle(item)"
-                    @click="toggleSelect(item)"
+                    @click="toggleSelect(item, $event)"
                     @dblclick="onCardDblClick(item)"
                     @mouseenter="onCardMouseEnter(item, $event)"
                     @mouseleave="onCardMouseLeave"
@@ -104,8 +104,9 @@
                         class="card-check"
                         :model-value="selectedMsgs.has(item.messageId)"
                         binary
+                        @mousedown="onCheckMouseDown"
                         @click.stop
-                        @update:model-value="() => toggleSelect(item)"
+                        @update:model-value="onCheckToggle(item)"
                       />
                       <Button
                         class="card-dl"
@@ -168,7 +169,7 @@
                     class="media-card"
                     :class="{ selected: selectedMsgs.has(item.messageId) }"
                     :style="cardStyle(item)"
-                    @click="toggleSelect(item)"
+                    @click="toggleSelect(item, $event)"
                     @dblclick="onCardDblClick(item)"
                     @mouseenter="onCardMouseEnter(item, $event)"
                     @mouseleave="onCardMouseLeave"
@@ -197,8 +198,9 @@
                         class="card-check"
                         :model-value="selectedMsgs.has(item.messageId)"
                         binary
+                        @mousedown="onCheckMouseDown"
                         @click.stop
-                        @update:model-value="() => toggleSelect(item)"
+                        @update:model-value="onCheckToggle(item)"
                       />
                       <Button
                         class="card-dl"
@@ -686,6 +688,23 @@ async function copyCaptionText() {
 // ---- 多选与下载 ----
 
 const selectedMsgs = ref(new Set<number>())
+/** 区间选择锚点：记录最近一次普通点击的 messageId，Shift+点击时以此为起点 */
+const lastClickedMsgId = ref<number | null>(null)
+
+// PrimeVue Checkbox 的 update:model-value 不携带原生鼠标事件，无法得知 Shift 是否按下；
+// 而挂在其上的 @click.stop 又会阻断到卡片的冒泡，故在 mousedown 阶段暂存原生事件，
+// 交由 onCheckToggle 转交给 toggleSelect，使复选框与卡片空白区一样支持 Shift 区间选择。
+let lastCheckMouseDown: MouseEvent | null = null
+
+function onCheckMouseDown(e: MouseEvent) {
+  lastCheckMouseDown = e
+}
+
+function onCheckToggle(it: MediaItem) {
+  const e = lastCheckMouseDown
+  lastCheckMouseDown = null
+  toggleSelect(it, e ?? undefined)
+}
 const dlVisible = ref(false)
 const dlSelection = ref<{
   dialogId: number
@@ -696,7 +715,22 @@ const dlSelection = ref<{
   items: MediaItem[]
 } | null>(null)
 
-function toggleSelect(it: MediaItem) {
+function toggleSelect(it: MediaItem, event?: MouseEvent) {
+  // Shift+点击：以锚点为起点，对当前已加载项做连续区间选择（仅追加，不清空已有选择）
+  if (event?.shiftKey && lastClickedMsgId.value !== null) {
+    const anchorIdx = items.value.findIndex((x) => x.messageId === lastClickedMsgId.value)
+    const clickIdx = items.value.findIndex((x) => x.messageId === it.messageId)
+    if (anchorIdx >= 0 && clickIdx >= 0) {
+      const [from, to] = anchorIdx < clickIdx ? [anchorIdx, clickIdx] : [clickIdx, anchorIdx]
+      const next = new Set(selectedMsgs.value)
+      for (let i = from; i <= to; i++) {
+        next.add(items.value[i].messageId)
+      }
+      selectedMsgs.value = next
+      lastClickedMsgId.value = it.messageId
+      return
+    }
+  }
   const next = new Set(selectedMsgs.value)
   if (next.has(it.messageId)) {
     next.delete(it.messageId)
@@ -704,6 +738,7 @@ function toggleSelect(it: MediaItem) {
     next.add(it.messageId)
   }
   selectedMsgs.value = next
+  lastClickedMsgId.value = it.messageId
 }
 
 function selectAllLoaded() {
@@ -712,6 +747,7 @@ function selectAllLoaded() {
 
 function clearSelection() {
   selectedMsgs.value = new Set()
+  lastClickedMsgId.value = null
 }
 
 function openDownload(messageIds: number[]) {

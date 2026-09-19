@@ -7,6 +7,7 @@ import { config } from '../../wailsjs/go/models'
 const defaults = (): Settings =>
   config.Settings.createFrom({
     proxy: '',
+    proxyMode: 'system',
     downloadDir: '',
     template: '',
     threads: 4,

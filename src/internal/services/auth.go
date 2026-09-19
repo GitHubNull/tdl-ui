@@ -368,7 +368,7 @@ func (s *AuthService) verifySession(parent context.Context, kvd storage.Storage)
 
 	c, err := pkgtclient.New(ctx, pkgtclient.Options{
 		KV:               kvd,
-		Proxy:            s.cfg.Get().Proxy,
+		Proxy:            config.EffectiveProxy(s.cfg.Get()),
 		ReconnectTimeout: reconnectTimeout,
 	}, false)
 	if err != nil {
@@ -496,7 +496,7 @@ func (s *AuthService) runCodeLogin(flow *loginFlow, phone string) {
 
 		c, err := pkgtclient.New(ctx, pkgtclient.Options{
 			KV:               kvd,
-			Proxy:            s.cfg.Get().Proxy,
+			Proxy:            config.EffectiveProxy(s.cfg.Get()),
 			ReconnectTimeout: reconnectTimeout,
 		}, true)
 		if err != nil {
@@ -547,7 +547,7 @@ func (s *AuthService) runQRLogin(flow *loginFlow) {
 		d := tg.NewUpdateDispatcher()
 		c, err := pkgtclient.New(ctx, pkgtclient.Options{
 			KV:               kvd,
-			Proxy:            s.cfg.Get().Proxy,
+			Proxy:            config.EffectiveProxy(s.cfg.Get()),
 			ReconnectTimeout: reconnectTimeout,
 			UpdateHandler:    d,
 		}, true)

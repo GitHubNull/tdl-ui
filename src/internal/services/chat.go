@@ -562,7 +562,7 @@ func (s *ChatService) runTelegramClient(ctx context.Context, ready chan<- error,
 
 	c, err := pkgtclient.New(ctx, pkgtclient.Options{
 		KV:               kvd,
-		Proxy:            s.cfg.Get().Proxy,
+		Proxy:            config.EffectiveProxy(s.cfg.Get()),
 		ReconnectTimeout: reconnectTimeout,
 	}, false)
 	if err != nil {

@@ -15,6 +15,7 @@ import (
 	pkgtclient "github.com/iyear/tdl/pkg/tclient"
 	"github.com/iyear/tdl/pkg/tmessage"
 
+	"tdl-ui/internal/config"
 	"tdl-ui/internal/events"
 	"tdl-ui/internal/scriptapi"
 	"tdl-ui/internal/store"
@@ -110,7 +111,7 @@ func (m *Manager) execute(ctx context.Context, t *Task) (rerr error) {
 
 	c, err := pkgtclient.New(ctx, pkgtclient.Options{
 		KV:               kvd,
-		Proxy:            settings.Proxy,
+		Proxy:            config.EffectiveProxy(settings),
 		ReconnectTimeout: reconnectTimeout,
 	}, false)
 	if err != nil {

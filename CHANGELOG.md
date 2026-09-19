@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.21.0] - 2026-09-19 12:43:28
+
+### Added
+- **代理模式功能**：设置页新增「使用代理」总开关与代理模式二选一（使用系统代理 / 自定义代理）。系统代理模式读取操作系统环境变量（`HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`，按序探测首个非空值），自定义模式沿用原有手填地址；关闭后所有网络请求直连。
+- **`EffectiveProxy` 统一解析**：后端 `config.EffectiveProxy(settings)` 按模式返回实际生效的代理地址（off→直连；custom→用户地址；system→环境变量），下载引擎、登录流程（会话验证/验证码登录/扫码登录）、常驻聊天连接全部统一改用该函数解析代理。
+- **旧配置自动迁移**：历史配置无 `proxyMode` 字段但已填写代理地址的，一次性视为 custom 模式并在保存后固化；无地址的默认 system 模式。
+- **对话页 Shift 区间选择**：媒体卡片支持 Shift+点击以最近一次点击为锚点连续区间选择（仅追加不覆盖），复选框与卡片空白区行为一致。
+- **任务页失败/取消重试按钮**：失败或已取消任务新增「重试（断点续传）」按钮，复用恢复逻辑继续下载未完成文件。
+
+### Changed
+- **设置校验增强**：`ProxyMode` 仅接受 system/custom/off，空值回退 system，非法值保存时即报错；custom 模式下代理地址不能为空。
+- **代理设置文档与前端内置教程同步**：`doc/tutorials/intermediate/02-settings.md` 与 `src/frontend/src/content/tutorials/intermediate-settings.md` 重写「网络」章节（使用代理 / 代理模式）。
+
 ## [0.20.0] - 2026-08-09 01:52:35
 
 ### Added

@@ -25,10 +25,33 @@
 
       <h2 class="section-title">网络</h2>
       <div class="form-field">
-        <label for="proxy">代理地址</label>
-        <InputText id="proxy" v-model="store.settings.proxy" placeholder="socks5://127.0.0.1:1080 或 http://127.0.0.1:8080，留空直连" />
-        <span class="hint">修改后对新创建的任务与登录流程生效</span>
+        <label class="proxy-toggle">
+          <ToggleSwitch v-model="proxyEnabled" />
+          使用代理
+        </label>
+        <span class="hint">关闭后所有网络请求直连，不经过任何代理</span>
       </div>
+      <template v-if="proxyEnabled">
+        <div class="form-field">
+          <label>代理模式</label>
+          <div class="proxy-mode-options">
+            <label class="proxy-mode-option">
+              <RadioButton v-model="store.settings.proxyMode" value="system" />
+              使用系统代理
+            </label>
+            <label class="proxy-mode-option">
+              <RadioButton v-model="store.settings.proxyMode" value="custom" />
+              自定义代理
+            </label>
+          </div>
+          <span class="hint">系统代理读取操作系统环境变量（HTTPS_PROXY / HTTP_PROXY / ALL_PROXY）</span>
+        </div>
+        <div v-if="store.settings.proxyMode === 'custom'" class="form-field">
+          <label for="proxy">自定义代理地址</label>
+          <InputText id="proxy" v-model="store.settings.proxy" placeholder="socks5://127.0.0.1:1080 或 http://127.0.0.1:8080" />
+          <span class="hint">修改后对新创建的任务与登录流程生效</span>
+        </div>
+      </template>
 
       <h2 class="section-title">下载</h2>
       <div class="form-field">
@@ -180,7 +203,9 @@ import Button from 'primevue/button'
 import ConfirmDialog from 'primevue/confirmdialog'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
+import RadioButton from 'primevue/radiobutton'
 import SelectButton from 'primevue/selectbutton'
+import ToggleSwitch from 'primevue/toggleswitch'
 
 import DirSelect from '../components/DirSelect.vue'
 import { LogApi, SettingsApi } from '../api'
@@ -203,6 +228,14 @@ const logDirSelect = ref<InstanceType<typeof DirSelect> | null>(null)
 const accountHint = computed(() =>
   auth.loggedIn ? `已登录：${auth.username || auth.userId}` : '尚未登录 Telegram 账号',
 )
+
+// 代理总开关：mode !== 'off' 即开启；开启时回落系统代理，保证互斥二选一
+const proxyEnabled = computed({
+  get: () => store.settings.proxyMode !== 'off',
+  set: (v: boolean) => {
+    store.settings.proxyMode = v ? 'system' : 'off'
+  },
+})
 
 const themeOptions = [
   { label: '亮色', value: 'light' },
@@ -309,6 +342,24 @@ async function save() {
 
 .mono {
   font-family: Consolas, monospace;
+}
+
+.proxy-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.proxy-mode-options {
+  display: flex;
+  gap: 24px;
+}
+
+.proxy-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
 }
 
 .actions {

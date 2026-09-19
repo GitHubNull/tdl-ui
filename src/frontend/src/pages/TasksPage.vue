@@ -65,6 +65,15 @@
           @click="onResume(t.id)"
         />
         <Button
+          v-if="t.status === 'failed' || t.status === 'canceled'"
+          icon="pi pi-refresh"
+          severity="warn"
+          text
+          rounded
+          v-tooltip.top="'重试（断点续传）'"
+          @click="onResume(t.id)"
+        />
+        <Button
           v-if="hasPendingFiles(t) && (t.status === 'done' || t.status === 'failed' || t.status === 'canceled')"
           icon="pi pi-forward"
           severity="info"

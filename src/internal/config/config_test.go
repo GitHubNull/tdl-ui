@@ -57,7 +57,7 @@ func TestUpdateDefaultsOnNonPositive(t *testing.T) {
 	}
 }
 
-// TestUpdateValidatesProxy 代理格式预校验（SVC-14）。
+// TestUpdateValidatesProxy 代理格式预校验（SVC-14）：仅 custom 模式校验。
 func TestUpdateValidatesProxy(t *testing.T) {
 	m := newTestManager(t)
 	for _, p := range []string{
@@ -66,22 +66,107 @@ func TestUpdateValidatesProxy(t *testing.T) {
 		"socks5://",          // 缺主机名
 	} {
 		s := m.Get()
+		s.ProxyMode = ProxyModeCustom
 		s.Proxy = p
 		if err := m.Update(s); err == nil {
 			t.Errorf("非法代理 %q 应被拒绝", p)
 		}
 	}
 	for _, p := range []string{
-		"",
 		"socks5://127.0.0.1:1080",
 		"http://127.0.0.1:8080",
 		"https://proxy.local:443",
 	} {
 		s := m.Get()
+		s.ProxyMode = ProxyModeCustom
 		s.Proxy = p
 		if err := m.Update(s); err != nil {
 			t.Errorf("合法代理 %q 不应被拒绝: %v", p, err)
 		}
+	}
+	// off/system 模式下保留已填地址但不校验格式
+	for _, mode := range []string{ProxyModeOff, ProxyModeSystem} {
+		s := m.Get()
+		s.ProxyMode = mode
+		s.Proxy = "ftp://not-validated"
+		if err := m.Update(s); err != nil {
+			t.Errorf("%s 模式下不应校验代理地址: %v", mode, err)
+		}
+	}
+}
+
+// TestUpdateProxyModeValidation 代理模式归一化与互斥校验。
+func TestUpdateProxyModeValidation(t *testing.T) {
+	m := newTestManager(t)
+
+	// 非法 mode 拒绝
+	s := m.Get()
+	s.ProxyMode = "banana"
+	if err := m.Update(s); err == nil {
+		t.Error("非法代理模式应被拒绝")
+	}
+
+	// custom + 空地址拒绝
+	s = m.Get()
+	s.ProxyMode = ProxyModeCustom
+	s.Proxy = ""
+	if err := m.Update(s); err == nil {
+		t.Error("custom 模式空代理地址应被拒绝")
+	}
+
+	// 空 mode 归一化为 system
+	s = m.Get()
+	s.ProxyMode = ""
+	s.Proxy = ""
+	if err := m.Update(s); err != nil {
+		t.Fatalf("Update 失败: %v", err)
+	}
+	if got := m.Get().ProxyMode; got != ProxyModeSystem {
+		t.Errorf("空 mode 应归一化为 system，实际 %q", got)
+	}
+}
+
+// TestEffectiveProxy 三态生效代理解析。
+func TestEffectiveProxy(t *testing.T) {
+	// off → 直连
+	if got := EffectiveProxy(Settings{ProxyMode: ProxyModeOff, Proxy: "socks5://127.0.0.1:1080"}); got != "" {
+		t.Errorf("off 模式应直连，实际 %q", got)
+	}
+	// custom → 用户地址
+	if got := EffectiveProxy(Settings{ProxyMode: ProxyModeCustom, Proxy: "socks5://127.0.0.1:1080"}); got != "socks5://127.0.0.1:1080" {
+		t.Errorf("custom 模式应返回用户地址，实际 %q", got)
+	}
+	// system → 环境变量（首个非空）
+	t.Setenv("HTTPS_PROXY", "http://sys-proxy:8080")
+	if got := EffectiveProxy(Settings{ProxyMode: ProxyModeSystem}); got != "http://sys-proxy:8080" {
+		t.Errorf("system 模式应读环境变量，实际 %q", got)
+	}
+	// system 无环境变量 → 直连
+	for _, k := range systemProxyEnvKeys {
+		t.Setenv(k, "")
+	}
+	if got := EffectiveProxy(Settings{ProxyMode: ProxyModeSystem}); got != "" {
+		t.Errorf("system 无环境变量应直连，实际 %q", got)
+	}
+}
+
+// TestProxyModeLegacyMigration 旧配置无 proxyMode 但有自定义地址时推断为 custom。
+func TestProxyModeLegacyMigration(t *testing.T) {
+	s := yamlToSettings(yamlConfig{
+		Session: struct {
+			Proxy            string `yaml:"proxy"`
+			ProxyMode        string `yaml:"proxyMode"`
+			LoggedInUserID   int64  `yaml:"loggedInUserId"`
+			LoggedInUsername string `yaml:"loggedInUsername"`
+		}{Proxy: "socks5://127.0.0.1:1080"},
+	})
+	if s.ProxyMode != ProxyModeCustom {
+		t.Errorf("旧配置有代理地址应推断为 custom，实际 %q", s.ProxyMode)
+	}
+	// 无地址时保持空（由 Update 归一化为 system）
+	s2 := yamlToSettings(yamlConfig{})
+	if s2.ProxyMode != "" {
+		t.Errorf("无地址旧配置 mode 应为空，实际 %q", s2.ProxyMode)
 	}
 }
 
