@@ -238,3 +238,8 @@ func (s *DownloadService) ResumeTaskWithPending(id string) error {
 	}
 	return nil
 }
+
+// GetTotalSpeed 返回全部活跃任务的聚合下载速度（字节/秒）。
+func (s *DownloadService) GetTotalSpeed() int64 {
+	return s.manager.TotalSpeed()
+}

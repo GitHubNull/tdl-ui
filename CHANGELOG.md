@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.23.0] - 2026-09-21 23:56:39
+
+### Added
+- **下载速度实时显示**：任务页头部新增全局总速度指示（`pi-bolt` + 速度值，仅总速度 > 0 时显示），任务卡片显示任务级聚合速度（仅运行中），文件行显示单文件实时速度（仅下载中）。
+- **后端速度采样与聚合**：`progress` 按前后两次进度事件的字节差/时间差计算单文件速度（字节/秒），`FileEvent` 新增 `speed` 字段（仅 downloading 时携带），done/failed 时清理采样状态；`Task` 维护 `fileSpeeds` 速度聚合缓存，`TaskView` 新增 `speed` 字段。
+- **`GetTotalSpeed` 绑定接口**：`Manager.TotalSpeed()` 聚合全部运行中任务的速度，经 `DownloadService.GetTotalSpeed()` 暴露给前端。
+- **`fmtSpeed` 格式化工具**：前端 `format.ts` 新增字节/秒 → 人类可读速度（如 `1.5 MB/s`）的格式化函数。
+
+### Changed
+- **总速度轮询刷新**：前端任务 store 新增 `totalSpeed` 状态与 `refreshTotalSpeed()`，任务页挂载期间以 1 秒间隔轮询 `GetTotalSpeed`，卸载时清理定时器（避免高频事件推送）。
+
 ## [0.22.0] - 2026-09-19 13:33:51
 
 ### Added

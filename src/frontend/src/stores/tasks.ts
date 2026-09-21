@@ -14,6 +14,7 @@ export const useTasksStore = defineStore('tasks', {
     tasks: [] as TaskView[],
     // taskId -> fileId -> FileEvent（仅保留进行中/失败文件）
     files: {} as Record<string, Record<number, FileEvent>>,
+    totalSpeed: 0,
     inited: false,
   }),
   getters: {
@@ -100,6 +101,13 @@ export const useTasksStore = defineStore('tasks', {
     async resumeTaskWithPending(id: string) {
       await Download.resumeTaskWithPending(id)
       await this.refresh()
+    },
+    async refreshTotalSpeed() {
+      try {
+        this.totalSpeed = await Download.getTotalSpeed()
+      } catch {
+        /* 非 Wails 环境忽略 */
+      }
     },
   },
 })

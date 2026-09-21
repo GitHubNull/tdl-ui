@@ -49,6 +49,7 @@ export const Download = {
   deleteFileRecord: DownloadService.DeleteFileRecord,
   revealFile: DownloadService.RevealFileInDir,
   resumeTaskWithPending: DownloadService.ResumeTaskWithPending,
+  getTotalSpeed: DownloadService.GetTotalSpeed,
 }
 
 // ---- ScriptService ----

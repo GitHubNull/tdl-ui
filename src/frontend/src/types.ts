@@ -52,6 +52,8 @@ export interface FileEvent {
   error?: string
   /** 仅 done 时携带：最终文件路径 */
   path?: string
+  /** 当前下载速度，字节/秒；仅 downloading 时有效 */
+  speed?: number
 }
 
 /** services.DownloadedFile（对话内已下载消息，"已下载"标记数据源） */

@@ -6,6 +6,10 @@
         <p>下载任务的实时进度与控制</p>
       </div>
       <div class="header-actions">
+        <div v-if="tasks.totalSpeed > 0" class="total-speed">
+          <i class="pi pi-bolt" />
+          <span>{{ fmtSpeed(tasks.totalSpeed) }}</span>
+        </div>
         <Button
           label="清除已完成记录"
           icon="pi pi-eraser"
@@ -157,6 +161,7 @@
         <span v-if="t.scriptName"><i class="pi pi-code" /> {{ t.scriptName }}</span>
         <span v-if="t.failed"><i class="pi pi-exclamation-triangle" /> 失败 {{ t.failed }}</span>
         <span v-if="t.fileCount"><i class="pi pi-file" /> 已登记 {{ t.fileCount }} 个文件</span>
+        <span v-if="t.speed && t.status === 'running'"><i class="pi pi-bolt" /> {{ fmtSpeed(t.speed) }}</span>
         <span>{{ t.createdAt }}</span>
       </div>
 
@@ -167,6 +172,7 @@
         <i :class="f.state === 'failed' ? 'pi pi-times-circle failed' : 'pi pi-arrow-circle-down'" />
         <span class="name" :title="f.name">{{ f.name }}</span>
         <span class="size">{{ fmtSize(f.downloaded) }} / {{ fmtSize(f.total) }}</span>
+        <span v-if="f.speed && f.state === 'downloading'" class="speed">{{ fmtSpeed(f.speed) }}</span>
         <ProgressBar
           :value="f.total > 0 ? Math.round((f.downloaded / f.total) * 100) : 0"
           :show-value="false"
@@ -277,7 +283,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
 import Button from 'primevue/button'
@@ -291,7 +297,7 @@ import NewTaskDialog from '../components/NewTaskDialog.vue'
 import SearchBox from '../components/SearchBox.vue'
 import emptyTasks from '../assets/illustrations/empty-tasks.svg'
 import { Download } from '../api'
-import { fmtSize } from '../utils/format'
+import { fmtSize, fmtSpeed } from '../utils/format'
 import type { TaskFile, TaskView } from '../types'
 import { useTasksStore } from '../stores/tasks'
 
@@ -299,6 +305,20 @@ const tasks = useTasksStore()
 const toast = useToast()
 const confirm = useConfirm()
 const showDialog = ref(false)
+
+// 全局总速度轮询（1s 间隔，避免高频事件推送）
+let speedTimer: ReturnType<typeof setInterval> | null = null
+onMounted(() => {
+  speedTimer = setInterval(() => {
+    tasks.refreshTotalSpeed()
+  }, 1000)
+})
+onUnmounted(() => {
+  if (speedTimer) {
+    clearInterval(speedTimer)
+    speedTimer = null
+  }
+})
 
 // 任务文件列表的展开与多选状态
 const expanded = reactive<Record<string, boolean>>({})
@@ -715,6 +735,24 @@ function isFinal(s: string) {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
+}
+
+.total-speed {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--p-primary-50);
+  color: var(--p-primary-700);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.total-speed .pi {
+  font-size: 12px;
 }
 
 .meta {
@@ -740,6 +778,14 @@ function isFinal(s: string) {
   color: var(--p-text-muted-color);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.file-row .speed {
+  color: var(--p-primary-500);
+  font-size: 12px;
+  white-space: nowrap;
+  min-width: 72px;
+  text-align: right;
 }
 
 .file-row .failed {

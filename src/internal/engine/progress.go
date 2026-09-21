@@ -29,6 +29,8 @@ type FileEvent struct {
 	Error string `json:"error,omitempty"`
 	// Path 仅 done 时携带：最终文件路径，供前端完成瞬间切换"已下载"态
 	Path string `json:"path,omitempty"`
+	// Speed 当前下载速度，字节/秒；仅 downloading 时有效
+	Speed int64 `json:"speed,omitempty"`
 }
 
 // defaultProgressEmitInterval 单文件进度事件的最小推送间隔默认值，避免高频刷屏；
@@ -46,6 +48,10 @@ type progress struct {
 
 	mu       sync.Mutex
 	lastEmit map[int]time.Time
+
+	speedMu   sync.Mutex
+	lastBytes map[int]int64     // fileId -> 上次采样字节数
+	lastTime  map[int]time.Time // fileId -> 上次采样时间
 }
 
 func newProgress(task *Task, it *iter, rewriteExt bool, emitInterval time.Duration) *progress {
@@ -58,6 +64,8 @@ func newProgress(task *Task, it *iter, rewriteExt bool, emitInterval time.Durati
 		rewriteExt:   rewriteExt,
 		emitInterval: emitInterval,
 		lastEmit:     make(map[int]time.Time),
+		lastBytes:    make(map[int]int64),
+		lastTime:     make(map[int]time.Time),
 	}
 }
 
@@ -88,7 +96,8 @@ func (p *progress) OnDownload(elem downloader.Elem, state downloader.ProgressSta
 	p.lastEmit[e.id] = now
 	p.mu.Unlock()
 
-	p.emit(e, state.Total, state.Downloaded, "downloading", nil)
+	speed := p.sampleSpeed(e.id, state.Downloaded, now)
+	p.emitWithSpeed(e, state.Total, state.Downloaded, "downloading", nil, speed)
 }
 
 func (p *progress) OnDone(elem downloader.Elem, err error) {
@@ -130,6 +139,8 @@ func (p *progress) OnDone(elem downloader.Elem, err error) {
 	ev := p.buildEvent(e, e.file.Size, e.file.Size, "done", nil)
 	ev.Name = filepath.Base(newpath) // rewriteExt 可能改名，以最终文件名为准
 	ev.Path = newpath
+	ev.Speed = 0
+	p.clearSpeedSample(e.id)
 	p.task.emitFile(ev)
 }
 
@@ -166,11 +177,18 @@ func (p *progress) fail(e *iterElem, err error) {
 	logEngine.Errorf("文件下载失败: task=%s 文件=%s err=%v", p.task.ID, filepath.Base(e.to.Name()), err)
 	p.task.markFileFailed(e.to.Name())
 	p.task.onFileFailed()
+	p.clearSpeedSample(e.id)
 	p.emit(e, e.file.Size, 0, "failed", err)
 }
 
 func (p *progress) emit(e *iterElem, total, downloaded int64, state string, err error) {
 	p.task.emitFile(p.buildEvent(e, total, downloaded, state, err))
+}
+
+func (p *progress) emitWithSpeed(e *iterElem, total, downloaded int64, state string, err error, speed int64) {
+	ev := p.buildEvent(e, total, downloaded, state, err)
+	ev.Speed = speed
+	p.task.emitFile(ev)
 }
 
 func (p *progress) buildEvent(e *iterElem, total, downloaded int64, state string, err error) FileEvent {
@@ -188,4 +206,35 @@ func (p *progress) buildEvent(e *iterElem, total, downloaded int64, state string
 		ev.Error = err.Error()
 	}
 	return ev
+}
+
+// sampleSpeed 计算文件当前下载速度（字节/秒），并更新采样点。
+func (p *progress) sampleSpeed(fileID int, downloaded int64, now time.Time) int64 {
+	p.speedMu.Lock()
+	defer p.speedMu.Unlock()
+
+	lastBytes, lastTime := p.lastBytes[fileID], p.lastTime[fileID]
+	p.lastBytes[fileID] = downloaded
+	p.lastTime[fileID] = now
+
+	if lastTime.IsZero() {
+		return 0
+	}
+	dt := now.Sub(lastTime).Seconds()
+	if dt <= 0 {
+		return 0
+	}
+	delta := downloaded - lastBytes
+	if delta <= 0 {
+		return 0
+	}
+	return int64(float64(delta) / dt)
+}
+
+// clearSpeedSample 清理文件的速度采样状态。
+func (p *progress) clearSpeedSample(fileID int) {
+	p.speedMu.Lock()
+	delete(p.lastBytes, fileID)
+	delete(p.lastTime, fileID)
+	p.speedMu.Unlock()
 }

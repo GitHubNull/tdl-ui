@@ -659,6 +659,25 @@ func (m *Manager) HasActive() bool {
 	return false
 }
 
+// TotalSpeed 返回全部运行中任务的聚合下载速度（字节/秒）。
+func (m *Manager) TotalSpeed() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var total int64
+	for _, t := range m.tasks {
+		t.mu.Lock()
+		if t.status == StatusRunning {
+			t.speedMu.Lock()
+			for _, s := range t.fileSpeeds {
+				total += s
+			}
+			t.speedMu.Unlock()
+		}
+		t.mu.Unlock()
+	}
+	return total
+}
+
 // StopAndWait 以“暂停”语义停止全部运行中的任务并等待其 goroutine 退出（应用关闭编排用）。
 // 断点由 progress 实时持久化，任务落库为 paused，下次启动可断点续传。
 func (m *Manager) StopAndWait(timeout time.Duration) {

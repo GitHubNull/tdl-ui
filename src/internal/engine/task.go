@@ -74,6 +74,8 @@ type TaskView struct {
 	Failed     int      `json:"failed"`
 	FileCount  int      `json:"fileCount"`
 	CreatedAt  string   `json:"createdAt"`
+	// Speed 任务级聚合下载速度，字节/秒
+	Speed int64 `json:"speed,omitempty"`
 }
 
 // Task 一次下载任务。
@@ -98,6 +100,9 @@ type Task struct {
 	cancel   context.CancelFunc
 	files    []TaskFile    // 任务内文件记录（含 .tmp 未完成文件）
 	runDone  chan struct{} // 本次 run 结束时关闭，供删除文件前等待任务真正停止
+
+	speedMu    sync.Mutex
+	fileSpeeds map[int]int64 // fileId -> 当前速度（字节/秒）
 }
 
 // stopWait 取消运行中的任务并等待其真正退出（Windows 下句柄占用会导致删除失败）。
@@ -124,6 +129,12 @@ func (t *Task) stopWait(timeout time.Duration) {
 func (t *Task) view() TaskView {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	var speed int64
+	t.speedMu.Lock()
+	for _, s := range t.fileSpeeds {
+		speed += s
+	}
+	t.speedMu.Unlock()
 	return TaskView{
 		ID:         t.ID,
 		URLs:       t.opts.URLs,
@@ -137,6 +148,7 @@ func (t *Task) view() TaskView {
 		Failed:     t.failed,
 		FileCount:  len(t.files),
 		CreatedAt:  t.CreatedAt,
+		Speed:      speed,
 	}
 }
 
@@ -158,6 +170,18 @@ func (t *Task) emitUpdate() {
 }
 
 func (t *Task) emitFile(ev FileEvent) {
+	// 维护任务级速度聚合缓存
+	t.speedMu.Lock()
+	if t.fileSpeeds == nil {
+		t.fileSpeeds = make(map[int]int64)
+	}
+	if ev.State == "downloading" {
+		t.fileSpeeds[ev.FileID] = ev.Speed
+	} else {
+		delete(t.fileSpeeds, ev.FileID)
+	}
+	t.speedMu.Unlock()
+
 	t.mgr.deps.Emitter.Emit(events.TaskFile, ev)
 }
 

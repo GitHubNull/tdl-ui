@@ -15,6 +15,12 @@ export function fmtSize(n: number): string {
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`
 }
 
+/** 字节/秒 → 人类可读速度 */
+export function fmtSpeed(bytesPerSec: number): string {
+  if (!bytesPerSec || bytesPerSec <= 0) return '0 B/s'
+  return `${fmtSize(bytesPerSec)}/s`
+}
+
 /** unix 秒 → YYYY-MM-DD */
 export function fmtDate(unix: number): string {
   if (!unix) return '-'
